@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { ConfigProvider, Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { tick } from '../src/run/trigger.ts';
-import { readHeard } from '../src/run/hear.ts';
+import { readHeard, readHeardOutcome, readIssueWithPull } from '../src/run/hear.ts';
 import { readRunSpend } from '../src/run/settle.ts';
 import { unmarkedNote } from '../src/workflow.ts';
 import { findRequest } from '../src/event.ts';
@@ -257,8 +257,42 @@ describe('tick with an on.event hook', () => {
     expect([...said]).toEqual([[m.id, 'answer']]);
     expect(heardLines(where)).toEqual([
       { event: m.id, plugin: 'b', does: 'answer' },
-      { event: m.id, plugin: 'a' },
+      { event: m.id, plugin: 'a', does: 'pass' },
     ]);
+  });
+
+  it.each(['pass', 'back'] as const)('applies a %s said off a human wait once the run waits on a human', async does => {
+    const { graph, calls } = hooked({ late: `return '${does}';` });
+    const where = world();
+    const { run } = services(where, []);
+    const stored = (await run(
+      Effect.andThen(
+        waiting(where),
+        Effect.flatMap(Store, s => s.get('run-7'))
+      )
+    ))!;
+    const m = comment(7, 'morgan', true, 'rename hello', at(5));
+    const early = await run(readHeard(graph, issue, { ...stored, step: 'implement' }, [m]));
+    const late = await run(readHeard(graph, issue, stored, [m]));
+    expect([[...early.hooked], [...late.hooked], calls().length]).toEqual([[], [[m.id, does]], 1]);
+  });
+
+  it('passes a run at a human wait on the pass its hook said before the wait', async () => {
+    const { graph, calls } = hooked({ late: "return 'pass';" });
+    const where = world();
+    say(where, comment(8, 'morgan', true, 'ship it', at(5)));
+    const { run } = services(where, []);
+    const stored = (await run(
+      Effect.andThen(
+        waiting(where),
+        Effect.flatMap(Store, s => s.get('run-7'))
+      )
+    ))!;
+    const hear = (r: typeof stored) =>
+      run(Effect.flatMap(readIssueWithPull(issue, r, graph), t => readHeardOutcome(graph, issue, r, t)));
+    const early = await hear({ ...stored, step: 'implement' });
+    const late = await hear(stored);
+    expect([early, late?.outcome, calls().length]).toEqual([undefined, { kind: 'pass' }, 1]);
   });
 
   it('prices a hook call with the instance price table', async () => {

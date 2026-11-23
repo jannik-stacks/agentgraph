@@ -248,13 +248,7 @@ export const readHeard = (graph: Graph, w: Workflow, run: Run, events: readonly 
               Effect.timeout('30 seconds'),
               Effect.flatMap(Schema.decodeUnknownEffect(HeardResult, { onExcessProperty: 'error' }))
             );
-            const { usd = undefined, ...result } = typeof said === 'string' ? { does: said } : (said ?? {});
-            const line = {
-              event: m.id,
-              plugin: hook.plugin,
-              ...('does' in result && getHeard(w, run, m, result.does) === result.does && result),
-              ...(usd !== undefined && { usd }),
-            };
+            const line = { event: m.id, plugin: hook.plugin, ...(typeof said === 'string' ? { does: said } : said) };
             yield* store.trace(run.id, { at: new Date().toISOString(), step: run.step, heard: line });
             return line;
           }).pipe(
@@ -263,7 +257,7 @@ export const readHeard = (graph: Graph, w: Workflow, run: Run, events: readonly 
             )
           ));
         if (!line) return { hooked, held: m.at };
-        last = line.does ?? last;
+        if (line.does && getHeard(w, run, m, line.does) === line.does) last = line.does;
       }
       if (last) hooked.set(m.id, last);
     }

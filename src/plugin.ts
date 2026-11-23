@@ -16,7 +16,7 @@ import {
   SchemaIssue,
   SchemaRepresentation,
 } from 'effect';
-import { type Event, Heard, type Issue, type IssueStatus } from './event.ts';
+import { type Event, Heard, HeardVerdict, type Issue, type IssueStatus } from './event.ts';
 import type { TokenCounts } from './prices.ts';
 import type { InstanceHosts, Run } from './types.ts';
 
@@ -91,12 +91,7 @@ export type HookContext<S = undefined> = Omit<ToolContext<S>, 'readFile' | 'abor
 
 type StatusHook<S> = (change: StatusChange, context: HookContext<S>) => unknown;
 
-export const HeardResult = Schema.UndefinedOr(
-  Schema.Union([
-    Heard,
-    Schema.Struct({ does: Heard, why: Schema.optionalKey(Schema.String), usd: Schema.optionalKey(Schema.Finite) }),
-  ])
-);
+export const HeardResult = Schema.UndefinedOr(Schema.Union([Heard, HeardVerdict]));
 
 export type EventHook<S = undefined> = (
   heard: {

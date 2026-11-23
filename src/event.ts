@@ -14,6 +14,8 @@ const Text = Schema.optionalKey(Schema.String);
 export const Heard = Schema.Literals(['answer', 'back', 'pass', 'stop', 'none']);
 export type Heard = typeof Heard.Type;
 
+export const HeardVerdict = Schema.Struct({ does: Heard, why: Text, usd: Schema.optionalKey(Schema.Finite) });
+
 export const HeardKinds = Schema.Struct({
   comment: Schema.optionalKey(Heard),
   approved: Schema.optionalKey(Heard),
@@ -60,10 +62,8 @@ export const parseAgentRequest = (said: string): NonNullable<Comment['agentReque
   return { ...(command && { command }), text: text.trim() };
 };
 
-export const formatLiteralPattern = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 export const findRequest = (body: string, marks: readonly string[] = ['/agent', '@agent']): Comment['agentRequest'] => {
-  const mark = new RegExp(`(?<![\\w./-])(?:${marks.map(formatLiteralPattern).join('|')})(?![\\w/-])`, 'i');
+  const mark = new RegExp(`(?<![\\w./-])(?:${marks.map(RegExp.escape).join('|')})(?![\\w/-])`, 'i');
   let fenced = false;
   let offset = 0;
   for (const line of body.split('\n')) {

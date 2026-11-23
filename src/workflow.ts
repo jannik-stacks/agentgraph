@@ -6,7 +6,6 @@ import {
   type Heard,
   HeardKinds,
   heardKinds,
-  formatLiteralPattern,
   labelPrefix,
   limitLabels,
   type Event,
@@ -450,7 +449,7 @@ export const isTemplateBranch = (template: string, branch: string, issue?: numbe
   new RegExp(
     `^${template
       .split(/(\{[^}]*\})/)
-      .map(p => (p === '{issue}' && issue !== undefined ? issue : /^\{.*\}$/.test(p) ? '.+' : formatLiteralPattern(p)))
+      .map(p => (p === '{issue}' && issue !== undefined ? issue : /^\{.*\}$/.test(p) ? '.+' : RegExp.escape(p)))
       .join('')}(-\\d+)?$`
   ).test(branch);
 
