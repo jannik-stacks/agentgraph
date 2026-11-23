@@ -1,15 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { Deferred, Duration, Effect, Exit, FiberSet, identity, Option, Schema, Scope, Semaphore, Stream } from 'effect';
 import { formatEventLine } from '../context.ts';
-import {
-  Tracker,
-  currentRunLinkRef,
-  findBranchPull,
-  formatAgentComment,
-  isAgentBranch,
-  parseAgentRequest,
-} from '../tracker.ts';
-import type { Comment, Event, Issue } from '../event.ts';
+import { Tracker, currentRunLinkRef, findBranchPull, formatAgentComment, isAgentBranch } from '../tracker.ts';
+import { type Comment, type Event, type Issue, parseAgentRequest } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
 import { PluginMetadata } from '../meta.ts';
 import { type Graph, makeRunGraph } from '../folder.ts';
@@ -45,7 +38,8 @@ import {
   isHeardBy,
   readContinuedRun,
   readRunEvents,
-  getHeardEvent,
+  isRouted,
+  readHeard,
   writeHeardEvents,
 } from './hear.ts';
 import { runLaterChecks } from './evaluate.ts';
@@ -373,29 +367,41 @@ export const tick = (
           events.filter(m => m.issue === run.issue).map(m => ({ ...m, issue: origin.get(m) ?? m.issue }))
         );
 
-        const taken = (m: Event, lined: Event[] = []) => {
-          const o =
-            w &&
-            getEventOutcome(
-              w,
-              run,
-              tells.includes(m) || (isParked(run) && isQuiet(w)) ? m : getHeardEvent(router, w, m),
-              lined,
-              pickCommandTarget(graph, runs, m, router, tells.includes(m) ? run : undefined)
-            );
-          return o && (run.status !== 'running' || o.kind === 'stop') ? o : undefined;
-        };
-        const answers =
+        const fresh =
           w && !young(run.issue)
             ? [...events, ...pending, ...tells].filter(
                 m =>
                   m.issue === run.issue &&
                   m.at > at &&
                   (!isParked(run) || m.at > (findLastMove(trace) ?? at)) &&
-                  !used.has(m) &&
-                  taken(m)
+                  !used.has(m)
               )
             : [];
+        const { hooked, held } = w
+          ? yield* readHeard(
+              graph,
+              w,
+              run,
+              fresh.filter(m => !tells.includes(m))
+            )
+          : {};
+        const taken = (m: Event, lined: Event[] = []) => {
+          const o =
+            w && (tells.includes(m) || (isParked(run) && isQuiet(w)) || !isRouted(graph, w, m))
+              ? getEventOutcome(
+                  w,
+                  run,
+                  m,
+                  lined,
+                  pickCommandTarget(graph, runs, m, router, tells.includes(m) ? run : undefined),
+                  hooked?.get(m.id)
+                )
+              : undefined;
+          return o && (o.kind === 'stop' || (run.status !== 'running' && (held === undefined || m.at < held)))
+            ? o
+            : undefined;
+        };
+        const answers = fresh.filter(m => taken(m));
         const m =
           answers.find(m => m.kind === 'merged') ?? answers.find(a => taken(a)!.kind !== 'answer') ?? answers[0];
         if (!w || !m) return;
@@ -559,10 +565,28 @@ export const tick = (
       );
       const sourced = Object.values(graph.workflows).find(w => isIssueTriggered(w, m));
       const restart = target?.verb === 'restart' ? (target.step ?? '') : undefined;
+      const routed =
+        router !== undefined &&
+        m.kind === 'comment' &&
+        m.trusted &&
+        !m.bot &&
+        !m.comment?.agentRequest &&
+        runs.some(
+          r =>
+            r.issue === m.issue &&
+            r.workflow !== router &&
+            !isRunDone(r) &&
+            graph.workflows[r.workflow]?.on.comment === 'answer'
+        );
       const w =
         m.kind === 'label' && relabelled
           ? undefined
-          : (sourced ?? (getAgentRequest(m) !== undefined ? (target?.workflow ?? triggered[0]) : undefined));
+          : (sourced ??
+            (getAgentRequest(m) !== undefined
+              ? (target?.workflow ?? triggered[0])
+              : routed
+                ? graph.workflows[router]
+                : undefined));
       if (!w || (used.has(m) && restart === undefined) || !(sourced || m.trusted) || young(m.issue)) continue;
       if (!open.has(m.issue) && (m.kind !== 'comment' || !isInScope(graph, yield* tracker.issue(m.issue)))) continue;
       const old =

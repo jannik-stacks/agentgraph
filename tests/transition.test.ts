@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { makeCommentWithAgentRequest, parseAgentRequest } from '../src/tracker.ts';
-import type { Event } from '../src/event.ts';
+import { makeCommentWithAgentRequest } from '../src/tracker.ts';
+import { type Event, parseAgentRequest } from '../src/event.ts';
 import type { Graph } from '../src/folder.ts';
 import {
   begin,
@@ -8,6 +8,7 @@ import {
   fold,
   pickCommandTarget,
   getEventOutcome,
+  unmarkedNote,
   makeRunWithFreshRound,
   transition,
 } from '../src/workflow.ts';
@@ -348,6 +349,80 @@ describe('getEventOutcome', () => {
       text: 'stop wrong issue',
     });
     expect(heard(asked, comment('/agent:stop wrong issue'))).toEqual({ kind: 'stop', why: 'wrong issue' });
+  });
+
+  it.each([
+    [
+      'answers any trusted comment',
+      { comment: 'answer' },
+      asked,
+      comment('looks good'),
+      undefined,
+      { kind: 'answer', text: `looks good\n\n${unmarkedNote}` },
+    ],
+    ['never hears a bot', { comment: 'answer' }, asked, { ...comment('looks good'), bot: true }, undefined, undefined],
+    ['silences a marked comment', { comment: 'none' }, asked, comment('/agent v2'), undefined, undefined],
+    [
+      'still takes a command',
+      { comment: 'none' },
+      asked,
+      comment('/agent:stop'),
+      undefined,
+      { kind: 'stop', why: 'a human said stop' },
+    ],
+    ['stops on a merge', { merged: 'stop' }, waiting, said('merged'), undefined, { kind: 'stop', why: 'merged' }],
+    [
+      'answers a review outside a human wait',
+      { changes_requested: 'answer' },
+      asked,
+      said('changes_requested'),
+      undefined,
+      { kind: 'answer', text: 'changes requested' },
+    ],
+    [
+      'keeps the usual answer where back does not apply',
+      { comment: 'back' },
+      asked,
+      comment('/agent v2'),
+      undefined,
+      { kind: 'answer', text: 'v2' },
+    ],
+    [
+      'sends a comment back at a human wait',
+      { comment: 'back' },
+      waiting,
+      comment('redo it'),
+      undefined,
+      { kind: 'back', why: 'redo it' },
+    ],
+    ['lets a hook overrule the map', { comment: 'answer' }, asked, comment('looks good'), 'none', undefined],
+    [
+      'lets a hook wake without a map',
+      {},
+      asked,
+      comment('looks good'),
+      'answer',
+      { kind: 'answer', text: `looks good\n\n${unmarkedNote}` },
+    ],
+    [
+      'ignores a hook pass outside a human wait',
+      { comment: 'answer' },
+      asked,
+      comment('/agent v2'),
+      'pass',
+      { kind: 'answer', text: 'v2' },
+    ],
+    [
+      'never revives a finished run',
+      { comment: 'answer' },
+      at('implement', { status: 'done' }),
+      comment('hi'),
+      'answer',
+      undefined,
+    ],
+  ] as const)('on map: %s', (_, on, run, m, hooked, outcome) => {
+    const mapped = { ...w, on: { ...w.on, ...on } };
+    expect(getEventOutcome(mapped, run, m, [], pickCommandTarget(kit, [run], m, undefined), hooked)).toEqual(outcome);
   });
 
   it('ignores comments without the command, untrusted authors, other issues and finished runs', () => {

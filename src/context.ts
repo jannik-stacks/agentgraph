@@ -1,6 +1,6 @@
 import { formatSpend, getRunSpend } from './trace.ts';
 import { makeStudioRunUrl, type Event, type Issue, type IssueStatus } from './event.ts';
-import { formatFailedTryFeedback } from './workflow.ts';
+import { formatFailedTryFeedback, unmarkedNote } from './workflow.ts';
 import { formatReason, type CheckEntry, type Run, type Seen, type Trace } from './types.ts';
 
 export type IssueWithPull = { issue: Issue & { events: Event[] }; pull?: Issue & { events: Event[] } };
@@ -71,7 +71,7 @@ const isEngineStatus = (m: Event) => m.bot && (m.kind === 'label' || m.kind === 
 export function formatRequest(t: IssueWithPull, run: Pick<Run, 'started' | 'sessions'>, since: string) {
   const { started } = run;
   const events = getEvents(t).toSorted((a, b) => a.at.localeCompare(b.at));
-  const said = events.filter(m => m.trusted && m.comment?.agentRequest !== undefined && m.at === started);
+  const said = events.filter(m => m.trusted && m.comment !== undefined && m.at === started);
   if (said.length === 0) return { text: '', shown: [] };
   const looked = Object.values(run.sessions)
     .flatMap(s => s.seen?.at ?? [])
@@ -94,6 +94,7 @@ export function formatRequest(t: IssueWithPull, run: Pick<Run, 'started' | 'sess
   return {
     text: [
       `## What you were asked\n\n${asked.map(formatEventLine).join('\n\n')}`,
+      said.some(m => m.comment?.agentRequest === undefined) && unmarkedNote,
       before.length > 0 && `Earlier in its review thread:\n\n${before.map(formatEventLine).join('\n\n')}`,
       after.length > 0 && `Later in its review thread:\n\n${after.map(formatEventLine).join('\n\n')}`,
     ]
