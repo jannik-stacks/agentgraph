@@ -2,7 +2,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ConfigProvider, Deferred, Effect, Layer, Option, Redacted, Stream } from 'effect';
+import { ConfigProvider, Deferred, Effect, Layer, Config, Redacted, Stream } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { issueDebounceMs, scanIssuesAndRunningRuns, startLoopDrives, tick } from '../src/run/trigger.ts';
 import { readEngineEnv, readEnvFile, readInstanceEnv, start as main, temporary } from '../src/main.ts';
@@ -454,7 +454,15 @@ describe('start with one issue', () => {
       data: where.data,
       tracker: 'github',
     });
-    expect(Redacted.value(Option.getOrThrow(seen[0]!.app).key)).toBe('PEM');
+    expect(
+      Redacted.value(
+        Effect.runSync(
+          Config.Redacted('AGENTGRAPH_APP_KEY').pipe(
+            Effect.provideService(ConfigProvider.ConfigProvider, seen[0]!.config)
+          )
+        )
+      )
+    ).toBe('PEM');
     expect(Redacted.value(seen[0]!.proxy.keys)).toBe('implementor=k1,reviewer=k2');
     expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
 
@@ -487,7 +495,10 @@ describe('the loop', () => {
         at: new Date().toISOString(),
       });
       const drives = startLoopDrives();
-      const setup = { ...(await readInstanceEnv(undefined, {}, env)), tracker: { origin: { local } } };
+      const setup = {
+        ...(await readInstanceEnv(undefined, {}, env)),
+        tracker: { origin: { kind: local ? 'folder' : 'remote' } },
+      };
       try {
         await main({ graph: sandbox, issue: 'all', data: where.data, drives, setup: setup as never }, doubles, env);
         return Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(where.data))));

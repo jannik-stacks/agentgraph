@@ -6,16 +6,7 @@ import { extname, join, sep } from 'node:path';
 import { registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tool as aiTool, asSchema, jsonSchema, type JSONSchema7, type Tool, type ToolExecutionOptions } from 'ai';
-import {
-  Effect,
-  type Layer,
-  type Option,
-  type Redacted,
-  Result,
-  Schema,
-  SchemaIssue,
-  SchemaRepresentation,
-} from 'effect';
+import { Effect, type Layer, type ConfigProvider, Result, Schema, SchemaIssue, SchemaRepresentation } from 'effect';
 import { type Event, Heard, type Issue, type IssueStatus } from './event.ts';
 import type { TokenCounts } from './prices.ts';
 import type { InstanceHosts, Run } from './types.ts';
@@ -56,8 +47,7 @@ export { sumHumanInteractions } from './results.ts';
 
 export type TrackerHost = {
   repo: string;
-  studio: string;
-  app: Option.Option<{ id: string; key: Redacted.Redacted }>;
+  config: ConfigProvider.ConfigProvider;
   dir?: string;
 };
 

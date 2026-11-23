@@ -2,9 +2,9 @@ import { generateKeyPairSync } from 'node:crypto';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Effect, Redacted } from 'effect';
-import { expect, it } from 'vitest';
-import { readInstallationReach } from '../src/github.ts';
+import { Effect, ConfigProvider } from 'effect';
+import { expect, it, vi } from 'vitest';
+import { github } from '../src/github.ts';
 import { findRunsWaitingOnPeople, formatNextSteps, formatEngineError } from '../src/status.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { type Run } from '../src/types.ts';
@@ -15,7 +15,7 @@ const { privateKey } = generateKeyPairSync('rsa', {
   privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
   publicKeyEncoding: { type: 'spki', format: 'pem' },
 });
-const app = { repo: 'o/r', id: '42', key: Redacted.make(privateKey) };
+const config = ConfigProvider.fromEnv({ env: { AGENTGRAPH_APP_ID: '42', AGENTGRAPH_APP_KEY: privateKey } });
 
 const run = (id: string, issue: number, status: Run['status'], reason?: string) =>
   JSON.stringify(makeRun({ id, workflow: 'fix', issue, step: 's', status, ...(reason && { reason }), started: 'x' }));
@@ -51,11 +51,16 @@ const check = async (repositories: string[]) => {
     writeFileSync(join(data, id, 'run.json'), run(id, issue, status, reason));
   }
   const runs = await Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(data))));
-  const lines = [
-    ...(await Effect.runPromise(readInstallationReach(app, fetch))),
-    ...findRunsWaitingOnPeople(runs).flatMap(r => formatNextSteps(r, 'o/r')),
-  ];
-  return { lines, calls, bodies };
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url, init) => fetch(String(url), init));
+  try {
+    const lines = [
+      ...(await Effect.runPromise(github.tracker!({ repo: 'o/r', config }).reach!)),
+      ...findRunsWaitingOnPeople(runs).flatMap(r => formatNextSteps(r, 'o/r')),
+    ];
+    return { lines, calls, bodies };
+  } finally {
+    spy.mockRestore();
+  }
 };
 
 it('warns about extra repos and lists waiting runs', async () => {

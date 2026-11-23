@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { Effect, Layer, Schedule, Schema, Stream } from 'effect';
 import { HttpRouter } from 'effect/http';
 import { type Rpc, type RpcGroup, RpcSerialization, RpcServer } from 'effect/rpc';
@@ -102,7 +102,7 @@ export const makeInstanceHost = (
     tracker: reads,
     readRuns: () => readStoredRuns(config),
   };
-  const folder = tracker?.origin.local ? dirname(tracker.origin.origin) : undefined;
+  const folder = tracker?.origin.kind === 'folder' ? tracker.origin.dir : undefined;
   const fail = (e: unknown) => ActionError.make({ message: e instanceof Error ? e.message : String(e) });
   const attempt = <A>(act: () => Promise<A>) => Effect.tryPromise({ try: act, catch: fail });
   const refuse = Effect.fail(ActionError.make({ message: 'this host serves no instance' }));
@@ -132,7 +132,7 @@ export const makeInstanceHost = (
         return { issues, runs, notes: yield* readEngineErrors(store, data, runs) };
       }).pipe(Effect.mapError(fail)),
     say: ({ issue, text }) =>
-      (!tracker || tracker.origin.local
+      (!tracker || tracker.origin.kind === 'folder'
         ? provided(writeAgentComment(issue, text))
         : Effect.fail(new TrackerError({ message: 'comment on the tracker; this host does not post there' }))
       ).pipe(Effect.asVoid, Effect.mapError(fail)),

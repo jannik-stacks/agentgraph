@@ -7,7 +7,9 @@ import { findDeadCheckouts, getCachePath, getCheckoutPaths, removeCheckout, writ
 import { removeBranch } from './disk.ts';
 import { commitCheckout, commitCheckoutOnce, hostGit, readGit, readBranches, readWorktreeAdmin } from './git.ts';
 import { type Box, Runner, Sandbox, SandboxError } from './sandbox.ts';
-import { type Checkout, type Command, type Exit, type TrackerError } from './types.ts';
+import { type Checkout, type Command, type Exit } from './types.ts';
+
+import { branchPrefix, type TrackerSetup } from './tracker.ts';
 
 const fetched = ['+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*', '+HEAD:refs/remotes/origin/HEAD'];
 const outputLimit = 64 << 10;
@@ -22,17 +24,14 @@ const auth = (token: string) => ({
 
 const mirrorLocks = new Map<string, Semaphore.Semaphore>();
 
-export const makeSandbox = (o: {
-  data: string;
-  origin: string;
-  local?: boolean;
-  token?: Effect.Effect<string, TrackerError>;
-}): Layer.Layer<Sandbox, never, Runner> =>
+export const makeSandbox = (o: { data: string; origin: TrackerSetup['origin'] }): Layer.Layer<Sandbox, never, Runner> =>
   Layer.effect(
     Sandbox,
     Effect.gen(function* () {
       const runner = yield* Runner;
-      const mirror = o.local ? o.origin : join(o.data, 'mirror.git');
+      const { origin } = o;
+      const local = origin.kind === 'folder';
+      const mirror = local ? join(origin.dir, 'origin.git') : join(o.data, 'mirror.git');
       let configured = false;
       const lock = mirrorLocks.get(mirror) ?? mirrorLocks.set(mirror, Semaphore.makeUnsafe(1)).get(mirror)!;
       const boxes = new Map<string, Box>();
@@ -40,7 +39,7 @@ export const makeSandbox = (o: {
 
       const fetch = lock.withPermits(1)(
         Effect.gen(function* () {
-          if (o.local) {
+          if (local) {
             if (configured) return;
             for (const [key, value] of Object.entries({
               'remote.origin.url': mirror,
@@ -60,15 +59,20 @@ export const makeSandbox = (o: {
               () => false
             )
           );
-          const env = o.token ? auth(yield* Effect.mapError(o.token, e => infra(e.message))) : {};
           if (!exists) {
             yield* Effect.promise(() => mkdir(dirname(mirror), { recursive: true }));
             const part = `${mirror}.${randomBytes(4).toString('hex')}`;
             yield* Effect.asVoid(hostGit({}, ['init', '--bare', '-q', part]));
-            yield* Effect.asVoid(hostGit({ GIT_DIR: part }, ['config', 'remote.origin.url', o.origin]));
             yield* Effect.promise(() => rename(part, mirror).catch(() => rm(part, { recursive: true, force: true })));
           }
-          yield* inMirror(['fetch', '--prune', '--update-head-ok', 'origin', ...fetched], env);
+          const fetchRemote = (remote: NonNullable<typeof origin.branches>, refspecs: string[], name = remote.url) =>
+            Effect.flatMap(remote.token ?? Effect.succeed(''), token =>
+              inMirror(['fetch', '--prune', '--update-head-ok', name, ...refspecs], token ? auth(token) : {})
+            ).pipe(Effect.mapError(e => ('detail' in e ? e : infra(e.message))));
+          const work = `refs/heads/${branchPrefix}*`;
+          yield* inMirror(['config', 'remote.origin.url', origin.url]);
+          yield* fetchRemote(origin, origin.branches ? [...fetched, `^${work}`] : fetched, 'origin');
+          if (origin.branches) yield* fetchRemote(origin.branches, ['--no-tags', `+${work}:${work}`]);
         })
       );
       const verify = (name: string) =>
@@ -76,7 +80,7 @@ export const makeSandbox = (o: {
           'rev-parse',
           '--verify',
           '--quiet',
-          `${o.local && name === 'origin/HEAD' ? 'HEAD' : name}^{commit}`,
+          `${local && name === 'origin/HEAD' ? 'HEAD' : name}^{commit}`,
         ]).pipe(Effect.orElseSucceed(() => ''));
       const verifyBranch = (ref: string) =>
         Effect.gen(function* () {
@@ -217,11 +221,11 @@ export const makeSandbox = (o: {
 
       return {
         readBranches: () =>
-          readBranches(mirror, o.local ? undefined : '%(if)%(worktreepath)%(then)%(refname:strip=2)%(end)'),
+          readBranches(mirror, local ? undefined : '%(if)%(worktreepath)%(then)%(refname:strip=2)%(end)'),
         readHead,
         removeBranch: (branch, base, head) =>
           lock.withPermits(1)(
-            removeBranch(mirror, branch, o.local && base === 'origin/HEAD' ? 'HEAD' : base, head, o.data)
+            removeBranch(mirror, branch, local && base === 'origin/HEAD' ? 'HEAD' : base, head, o.data)
           ),
         checkout,
         lines,

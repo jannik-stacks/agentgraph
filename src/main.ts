@@ -38,6 +38,9 @@ const instanceSettings = [
   'AGENTGRAPH_APP_KEY_FILE',
   'AGENTGRAPH_TRACKER',
   'AGENTGRAPH_REPO',
+  'AGENTGRAPH_FORK',
+  'GH_TOKEN',
+  'AGENTGRAPH_PROJECT_TOKEN',
   'AGENTGRAPH_TRUST',
   'AGENTGRAPH_DIR',
   'AGENTGRAPH_PROVIDER',
@@ -228,7 +231,7 @@ export const start = (
           : one.issue === 'all'
             ? scanIssuesAndRunningRuns(
                 graph,
-                drives && one.setup?.tracker.origin.local === false ? issueDebounceMs : 0,
+                drives && one.setup?.tracker.origin.kind === 'remote' ? issueDebounceMs : 0,
                 one.meta,
                 fork,
                 drives?.gates

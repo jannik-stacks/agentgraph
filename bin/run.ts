@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { readInstallationReach } from '../src/github.ts';
 import { spawn, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
@@ -15,7 +14,7 @@ import { hostname } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { Config, ConfigProvider, Effect, Fiber, Redacted, Schedule, Schema, Stream } from 'effect';
+import { Config, ConfigProvider, Effect, Fiber, Schedule, Schema, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
 import { makeInstanceHost, readEngineErrors, runLocalActions } from '../src/engine.ts';
 import { startLoopDrives, type Instruction } from '../src/run/trigger.ts';
@@ -272,7 +271,7 @@ const loadServedGraph = async (
 };
 
 const prepare = async (i: Instance, graph: string, after: string) => {
-  const connection = await connect(i, graph, after, !!trackerSetup.origin.local, scope);
+  const connection = await connect(i, graph, after, trackerSetup.origin.kind === 'folder', scope);
   scope = connection.scope;
   const loaded = await loadServedGraph(connection, graph, i, scope).catch((e: Error) =>
     fail(`${e.message}\n${after}`, 1)
@@ -398,11 +397,11 @@ async function openTracker(instance: Instance, scope: InstanceEnv) {
     settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
   );
   const setup = await makeTrackerSetup(current).catch((e: Error) => fail(e.message, 1));
-  if (setup.origin.local && !existsSync(setup.origin.origin))
+  if (setup.origin.kind === 'folder' && !existsSync(join(setup.origin.dir, 'origin.git')))
     fail(
       `the tracker folder ${instance.tracker} has no origin.git; restore it, or move ${instance.dir} aside to start anew`
     );
-  const i = setup.origin.local ? { ...instance, tracker: dirname(setup.origin.origin) } : instance;
+  const i = setup.origin.kind === 'folder' ? { ...instance, tracker: setup.origin.dir } : instance;
   return { i, setup, current };
 }
 
@@ -472,7 +471,7 @@ async function runOnInstance(
       )
     ).catch((e: Error) => fail(e.message, 1));
   const synced = async () => {
-    const why = setup.origin.local && (await ensureBase(i));
+    const why = setup.origin.kind === 'folder' && (await ensureBase(i));
     if (why) fail(why, 1);
     const uncommitted = await whyGraphUncommitted(i, graph);
     if (uncommitted) console.error(uncommitted);
@@ -483,7 +482,7 @@ async function runOnInstance(
       await synced();
       return openStudio(i);
     case 'start': {
-      if (!setup.origin.local) fail("open the issue on the tracker; the App's own issues do not start runs");
+      if (setup.origin.kind === 'remote') fail("open the issue on the tracker; the App's own issues do not start runs");
       const text = rest.join(' ').trim();
       if (!text) fail(`start takes the issue text\n${usage}`);
       const graph = await synced();
@@ -504,7 +503,7 @@ async function runOnInstance(
       return drive(i, issue, graph, provider);
     }
     case 'say': {
-      if (!setup.origin.local) fail("comment on the tracker; the App's own comments do not reach runs");
+      if (setup.origin.kind === 'remote') fail("comment on the tracker; the App's own comments do not reach runs");
       if (!said()) fail(`say takes text\n${usage}`);
       const issue = await findPullIssue(i, numbered());
       const graph = await synced();
@@ -516,7 +515,7 @@ async function runOnInstance(
       return drive(i, issue, graph, provider);
     }
     case 'review': {
-      if (!setup.origin.local) fail('review this pull request on the tracker');
+      if (setup.origin.kind === 'remote') fail('review this pull request on the tracker');
       const verdict = ({ approve: 'approved', changes: 'changes_requested' } as const)[
         rest[1] as 'approve' | 'changes'
       ];
@@ -531,14 +530,14 @@ async function runOnInstance(
       return;
     }
     case 'merge': {
-      if (!setup.origin.local) fail('merge this pull request on the tracker');
+      if (setup.origin.kind === 'remote') fail('merge this pull request on the tracker');
       await synced();
       const pull = await act(client => client.merge({ issue: numbered() }));
       console.log(`${pull.base} at ${pull.head.slice(0, 7)} in agentgraph`);
       return report(i, n, true);
     }
     case 'export': {
-      if (!setup.origin.local) fail('export applies to a local tracker');
+      if (setup.origin.kind === 'remote') fail('export applies to a local tracker');
       const result = await act(client =>
         client.export({
           issue: numbered(),
@@ -554,7 +553,7 @@ async function runOnInstance(
       return;
     }
     case 'close': {
-      if (!setup.origin.local) fail('close this issue on the tracker');
+      if (setup.origin.kind === 'remote') fail('close this issue on the tracker');
       const closed = await act(client => client.close({ issue: numbered() }));
       console.log(closed.length ? `closed #${closed.join(' and #')}` : `nothing open on #${n}`);
       return;
@@ -567,15 +566,7 @@ async function runOnInstance(
         return;
       }
       const lines = [
-        ...(scope.env.AGENTGRAPH_TRACKER === 'github'
-          ? await Effect.runPromise(
-              readInstallationReach({
-                repo: scope.env.AGENTGRAPH_REPO!,
-                id: scope.env.AGENTGRAPH_APP_ID!,
-                key: Redacted.make(scope.env.AGENTGRAPH_APP_KEY!),
-              })
-            )
-          : []),
+        ...(setup.reach ? await Effect.runPromise(setup.reach) : []),
         ...findRunsWaitingOnPeople(runs).flatMap(run =>
           formatNextSteps(
             run,
@@ -672,7 +663,7 @@ async function drive(i: Instance, issue: number, graph: string, provider: string
     process.exit(130);
   }
   if (runs.length === 0) console.log(`nothing to do on #${issue}`);
-  return trackerSetup.origin.local ? report(i, issue) : printRuns(runs);
+  return trackerSetup.origin.kind === 'folder' ? report(i, issue) : printRuns(runs);
 }
 
 function openStudio(i: Instance) {
@@ -870,7 +861,7 @@ async function serveLocked(instance: Instance, tag: string, shared: ReturnType<t
   const opened = await openTracker(instance, scope);
   const { i } = opened;
   let { setup, current } = opened;
-  const moved = setup.origin.local && (await ensureBase(i));
+  const moved = setup.origin.kind === 'folder' && (await ensureBase(i));
   if (moved) fail(moved, 1);
   const uncommitted = await whyGraphUncommitted(i, scope.env.AGENTGRAPH_DIR);
   if (uncommitted) console.error(tag + uncommitted);
@@ -878,7 +869,7 @@ async function serveLocked(instance: Instance, tag: string, shared: ReturnType<t
     i,
     scope.env.AGENTGRAPH_DIR,
     'Nothing was driven.',
-    !!setup.origin.local,
+    setup.origin.kind === 'folder',
     scope,
     tag
   );
@@ -909,7 +900,7 @@ async function serveLocked(instance: Instance, tag: string, shared: ReturnType<t
     ).catch((e: unknown) => (halted.aborted ? [] : (console.error(...[tag].filter(Boolean), e), [])));
   const polling =
     drives &&
-    !setup.origin.local &&
+    setup.origin.kind === 'remote' &&
     (async () => {
       while (!halted.aborted) {
         await sleep(current.every * 60_000, undefined, { signal: halted }).catch(() => {});
@@ -934,7 +925,7 @@ async function serveLocked(instance: Instance, tag: string, shared: ReturnType<t
         const decided: RunRecord[] = await drive();
         const runs = [...new Map([...decided, ...(drives?.settled.splice(0) ?? [])].map(r => [r.id, r])).values()];
         printRuns(runs, tag);
-        for (const issue of new Set((setup.origin.local ? runs : []).filter(isOnIssue).map(r => r.issue))) {
+        for (const issue of new Set((setup.origin.kind === 'folder' ? runs : []).filter(isOnIssue).map(r => r.issue))) {
           const result = await writePullToRepo(i, issue, { auto: true }).catch((e: Error) => ({ why: e.message }));
           if (result)
             console.log(
@@ -950,7 +941,7 @@ async function serveLocked(instance: Instance, tag: string, shared: ReturnType<t
       const signal = AbortSignal.any([stopping.signal, woken.signal]);
       await Promise.race([
         sleep(current.every * 60_000, undefined, { signal }),
-        ...(setup.origin.local ? [waitForTrackerEdit(i.tracker, signal)] : []),
+        ...(setup.origin.kind === 'folder' ? [waitForTrackerEdit(i.tracker, signal)] : []),
       ]).catch(() => {});
       woken.abort();
       if (stopping.signal.aborted) break;
@@ -966,7 +957,7 @@ async function serveLocked(instance: Instance, tag: string, shared: ReturnType<t
         console.error(`${tag}the settings did not refresh, the next pass keeps the last: ${(e as Error).message}`);
       }
       try {
-        const moved = setup.origin.local && (await ensureBase(i));
+        const moved = setup.origin.kind === 'folder' && (await ensureBase(i));
         if (moved) throw new Error(moved);
         scope.env.AGENTGRAPH_DIR = await ensureInstanceGraph(i, values.dir ?? scope.env.AGENTGRAPH_DIR);
         ({ setup } = await openTracker(i, scope));

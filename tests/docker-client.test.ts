@@ -488,6 +488,7 @@ describe('docker checkout', () => {
 
   it.each(['main', 'origin/HEAD'])('reads %s without starting or inspecting a sandbox image', async ref => {
     const repo = origin();
+    git(repo, 'clone', '--bare', '.', 'origin.git');
     const bin = tmp('docker-bin');
     const log = join(bin, 'log');
     writeFileSync(join(bin, 'docker'), `#!/bin/sh\necho called >> ${log}\nexit 1\n`);
@@ -496,7 +497,7 @@ describe('docker checkout', () => {
     process.env.PATH = `${bin}${delimiter}${path}`;
     try {
       const exit = await use(
-        dockerSandbox({ data: tmp('data'), origin: join(repo, '.git'), local: true, cache: '' }),
+        dockerSandbox({ data: tmp('data'), origin: { kind: 'folder', dir: repo }, cache: '' }),
         s => s.readHead(ref)
       );
       expect(exit).toEqual(Exit.succeed(git(repo, 'rev-parse', 'main')));
@@ -504,6 +505,25 @@ describe('docker checkout', () => {
     } finally {
       process.env.PATH = path;
     }
+  });
+
+  it('reads upstream main and imports only work branches from the second remote', async () => {
+    const upstream = origin();
+    const branches = origin();
+    git(upstream, 'branch', 'agentgraph/7', 'main');
+    git(branches, 'branch', 'agentgraph/7', 'feature');
+    git(branches, 'tag', 'fork-tag', 'feature');
+    const layer = dockerSandbox({
+      data: tmp('data'),
+      origin: { kind: 'remote', url: upstream, branches: { url: branches } },
+    });
+    expect(await use(layer, s => s.readHead('origin/HEAD'))).toEqual(Exit.succeed(git(upstream, 'rev-parse', 'main')));
+    expect(await use(layer, s => s.readHead('agentgraph/7'))).toEqual(
+      Exit.succeed(git(branches, 'rev-parse', 'feature'))
+    );
+    expect(Exit.isFailure(await use(layer, s => s.readHead('fork-tag')))).toBe(true);
+    git(branches, 'branch', '-D', 'agentgraph/7');
+    expect(Exit.isFailure(await use(layer, s => s.readHead('agentgraph/7')))).toBe(true);
   });
 
   it('sends the token to clone and fetch through the environment only', async () => {
@@ -521,7 +541,7 @@ describe('docker checkout', () => {
     const token = 'ghs_secret_token_value';
     const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
     try {
-      const layer = dockerSandbox({ data, origin: origin(), token: Effect.succeed(token) });
+      const layer = dockerSandbox({ data, origin: { kind: 'remote', url: origin(), token: Effect.succeed(token) } });
       const exit = await use(layer, s => Effect.andThen(s.checkout('main'), s.checkout('main')));
       expect(Exit.isSuccess(exit)).toBe(true);
     } finally {

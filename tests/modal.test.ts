@@ -37,7 +37,7 @@ const use = <A, E>(
       ),
       Effect.scoped,
       Effect.provide(
-        makeSandbox({ data, origin: origin() }).pipe(
+        makeSandbox({ data, origin: { kind: 'remote', url: origin() } }).pipe(
           Layer.provide(Layer.orDie(makeModalRunner(fake.client, { image: 'unused' }, { data }, gateway)))
         )
       )
@@ -166,7 +166,7 @@ describe('the Modal runner', () => {
     'runs a command in a live Modal box',
     async () => {
       const data = tmp('data');
-      const layer = makeSandbox({ data, origin: origin() }).pipe(
+      const layer = makeSandbox({ data, origin: { kind: 'remote', url: origin() } }).pipe(
         Layer.provide(
           Layer.orDie(
             modal.runner!(

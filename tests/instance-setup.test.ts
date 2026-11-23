@@ -132,7 +132,7 @@ it('constructs a GitHub instance offline without a local origin or shell credent
   const setup = await makeTrackerSetup(
     await Effect.runPromise(settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config)))
   );
-  expect(setup.origin).toMatchObject({ origin: 'https://github.com/owner/repository.git' });
+  expect(setup.origin).toMatchObject({ kind: 'remote', url: 'https://github.com/owner/repository.git' });
   const checked = w.run('check');
   expect([checked.status, checked.stdout.trim(), checked.stderr]).toEqual([0, 'ok', '']);
 });
@@ -881,13 +881,13 @@ it('resolves each loop instance from its own files, whatever the shell sets', as
       join(graph, 'plugins/ready.ts'),
       `
 import { writeFileSync } from 'node:fs';
-import { Effect, Layer, Option } from ${JSON.stringify(import.meta.resolve('effect'))};
+import { Config, Effect, Layer } from ${JSON.stringify(import.meta.resolve('effect'))};
 import { settings } from ${JSON.stringify(new URL('../src/services.ts', import.meta.url).href)};
 import { readHarnessSettings } from ${JSON.stringify(new URL('../src/harnesses.ts', import.meta.url).href)};
 import { folder } from ${JSON.stringify(new URL('../src/tracker.ts', import.meta.url).href)};
 export default { name: 'ready', tracker: host => { const setup = folder.tracker(host); return { ...setup,
-layer: (trust, as) => Layer.unwrap(Effect.map(Effect.all({ settings, harness: readHarnessSettings }), ({ settings: s, harness }) => {
-  writeFileSync(${JSON.stringify(join(w.root, `captured-${name}`))}, JSON.stringify({ studio: s.studio, app: Option.getOrUndefined(s.app)?.id, provider: harness.provider }));
+layer: (trust, as) => Layer.unwrap(Effect.map(Effect.all({ settings, app: Config.String('AGENTGRAPH_APP_ID').pipe(Config.withDefault(undefined)), harness: readHarnessSettings }), ({ settings: s, app, harness }) => {
+  writeFileSync(${JSON.stringify(join(w.root, `captured-${name}`))}, JSON.stringify({ studio: s.studio, app, provider: harness.provider }));
   return setup.layer(trust, as);
 })) }; } };`
     );
