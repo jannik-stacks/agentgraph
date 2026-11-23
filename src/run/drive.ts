@@ -15,8 +15,9 @@ import {
   readContinuedRun,
   writeHeardEvents,
   readEarlierBranch,
+  findRouter,
 } from './hear.ts';
-import { type Services, formatFailure } from './execute.ts';
+import { type Services, formatFailure, slotRankRef, waitForSlot } from './execute.ts';
 import { formatSettled } from './start.ts';
 import { removeThreads, writeEyes, writeStatus, readRunSpend, runEndChecks } from './settle.ts';
 import { moveCheckoutOnto, readBaseGain } from './follow.ts';
@@ -154,7 +155,7 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
       const readonly = w.steps.every(s => 'agent' in s.does && graph.agents[s.does.agent]?.readonly);
       const made = yield* Effect.flatMap(Sandbox, s =>
         s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, { ...graph, readonly })
-      );
+      ).pipe(waitForSlot(graph, 'parallel'));
       if (current.graphTree === undefined) {
         const { image } = made;
         const versions = {
@@ -248,6 +249,9 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         { ...removeThreads(current), status: 'waiting', waiting: { on: 'engine', error: e._tag }, retried: true }
       );
     };
+    const routes = w.name === findRouter(graph)?.name;
+    const rank = () =>
+      routes ? undefined : { stage: w.steps.findIndex(s => s.name === current.step), started: run.started };
     yield* store.lock(run.id);
     current = (yield* store.get(run.id)) ?? run;
     if (current.status !== 'running') return { run: current, drove: false };
@@ -261,6 +265,7 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
           )
         ),
         Effect.scoped,
+        Effect.provideService(slotRankRef, rank),
         Effect.catchTags({
           SandboxError: halt,
           SessionStop: halt,

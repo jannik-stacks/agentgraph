@@ -1,15 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { Deferred, Duration, Effect, Exit, FiberSet, identity, Option, Schema, Scope, Semaphore, Stream } from 'effect';
+import { Deferred, Duration, Effect, Exit, FiberSet, Option, Schema, Scope, Semaphore, Stream } from 'effect';
 import { formatEventLine } from '../context.ts';
-import {
-  Tracker,
-  currentRunLinkRef,
-  findBranchPull,
-  formatAgentComment,
-  isAgentBranch,
-  parseAgentRequest,
-} from '../tracker.ts';
-import type { Comment, Event, Issue } from '../event.ts';
+import { Tracker, currentRunLinkRef, findBranchPull, formatAgentComment, isAgentBranch } from '../tracker.ts';
+import { type Comment, type Event, type Issue, parseAgentRequest } from '../event.ts';
 import type { Proposal } from '../proposal.ts';
 import { PluginMetadata } from '../meta.ts';
 import { type Graph, makeRunGraph } from '../folder.ts';
@@ -45,7 +38,8 @@ import {
   isHeardBy,
   readContinuedRun,
   readRunEvents,
-  getHeardEvent,
+  isRouted,
+  readHeard,
   writeHeardEvents,
 } from './hear.ts';
 import { runLaterChecks } from './evaluate.ts';
@@ -263,11 +257,7 @@ export const tick = (
   marked = false,
   debounce = 0,
   meta?: Run['meta'],
-  fork?: (
-    id: string,
-    parallel: number | undefined,
-    effect: Effect.Effect<Run | undefined, never, Services>
-  ) => Effect.Effect<void, never, Services>,
+  fork?: (id: string, effect: Effect.Effect<Run | undefined, never, Services>) => Effect.Effect<void, never, Services>,
   defer: ((issue: number) => void) | undefined = undefined
 ): Effect.Effect<Run[], TrackerError | StoreError, Services> =>
   Effect.gen(function* () {
@@ -373,29 +363,41 @@ export const tick = (
           events.filter(m => m.issue === run.issue).map(m => ({ ...m, issue: origin.get(m) ?? m.issue }))
         );
 
-        const taken = (m: Event, lined: Event[] = []) => {
-          const o =
-            w &&
-            getEventOutcome(
-              w,
-              run,
-              tells.includes(m) || (isParked(run) && isQuiet(w)) ? m : getHeardEvent(router, w, m),
-              lined,
-              pickCommandTarget(graph, runs, m, router, tells.includes(m) ? run : undefined)
-            );
-          return o && (run.status !== 'running' || o.kind === 'stop') ? o : undefined;
-        };
-        const answers =
+        const fresh =
           w && !young(run.issue)
             ? [...events, ...pending, ...tells].filter(
                 m =>
                   m.issue === run.issue &&
                   m.at > at &&
                   (!isParked(run) || m.at > (findLastMove(trace) ?? at)) &&
-                  !used.has(m) &&
-                  taken(m)
+                  !used.has(m)
               )
             : [];
+        const { hooked, held } = w
+          ? yield* readHeard(
+              graph,
+              w,
+              run,
+              fresh.filter(m => !tells.includes(m))
+            )
+          : {};
+        const taken = (m: Event, lined: Event[] = []) => {
+          const o =
+            w && (tells.includes(m) || (isParked(run) && isQuiet(w)) || !isRouted(graph, w, m))
+              ? getEventOutcome(
+                  w,
+                  run,
+                  m,
+                  lined,
+                  pickCommandTarget(graph, runs, m, router, tells.includes(m) ? run : undefined),
+                  hooked?.get(m.id)
+                )
+              : undefined;
+          return o && (o.kind === 'stop' || (run.status !== 'running' && (held === undefined || m.at < held)))
+            ? o
+            : undefined;
+        };
+        const answers = fresh.filter(m => taken(m));
         const m =
           answers.find(m => m.kind === 'merged') ?? answers.find(a => taken(a)!.kind !== 'answer') ?? answers[0];
         if (!w || !m) return;
@@ -559,10 +561,28 @@ export const tick = (
       );
       const sourced = Object.values(graph.workflows).find(w => isIssueTriggered(w, m));
       const restart = target?.verb === 'restart' ? (target.step ?? '') : undefined;
+      const routed =
+        router !== undefined &&
+        m.kind === 'comment' &&
+        m.trusted &&
+        !m.bot &&
+        !m.comment?.agentRequest &&
+        runs.some(
+          r =>
+            r.issue === m.issue &&
+            r.workflow !== router &&
+            !isRunDone(r) &&
+            graph.workflows[r.workflow]?.on.comment === 'answer'
+        );
       const w =
         m.kind === 'label' && relabelled
           ? undefined
-          : (sourced ?? (getAgentRequest(m) !== undefined ? (target?.workflow ?? triggered[0]) : undefined));
+          : (sourced ??
+            (getAgentRequest(m) !== undefined
+              ? (target?.workflow ?? triggered[0])
+              : routed
+                ? graph.workflows[router]
+                : undefined));
       if (!w || (used.has(m) && restart === undefined) || !(sourced || m.trusted) || young(m.issue)) continue;
       if (!open.has(m.issue) && (m.kind !== 'comment' || !isInScope(graph, yield* tracker.issue(m.issue)))) continue;
       const old =
@@ -651,14 +671,26 @@ export const tick = (
 
     for (const r of runs.map(current).filter(r => !isRunDone(r))) {
       const w = graph.workflows[r.workflow];
-      const head = r.base && issues.find(t => t.number === r.base!.pull)?.pull?.head;
-      if (!r.base || !head || !w) continue;
-      const branch = formatRunBranch(w, r, issues);
-      const tip =
-        findBranchPull(issues, branch)?.pull.head ??
-        (branch &&
-          (yield* Effect.flatMap(Sandbox, s => s.readHead(branch)).pipe(Effect.orElseSucceed(() => undefined))));
-      yield* runFollow(w, r, r.base, head, tip, makeRunGraph(graph, r)).pipe(
+      const base = r.base;
+      if (!base || !w) continue;
+      yield* Effect.gen(function* () {
+        const on = issues.find(t => t.number === base.pull) ?? (yield* tracker.issue(base.pull));
+        const merged = on.state === 'merged';
+        if (!on.pull || (on.state !== 'open' && !merged)) return;
+        const sandbox = yield* Sandbox;
+        const to = merged
+          ? {
+              branch: on.pull.base,
+              sha: yield* sandbox.readHead(on.pull.base),
+              pull: findBranchPull(issues, on.pull.base)?.number,
+            }
+          : { branch: base.branch, sha: on.pull.head, pull: base.pull };
+        const branch = formatRunBranch(w, r, issues);
+        const tip =
+          findBranchPull(issues, branch)?.pull.head ??
+          (branch && (yield* sandbox.readHead(branch).pipe(Effect.orElseSucceed(() => undefined))));
+        yield* runFollow(w, r, to, tip, makeRunGraph(graph, r));
+      }).pipe(
         Effect.catch(e =>
           Effect.gen(function* () {
             yield* Effect.logError(`follow run ${r.id}`, e);
@@ -729,9 +761,7 @@ export const tick = (
     const running = live.filter(r => !hold(r)).toSorted((a, b) => a.started.localeCompare(b.started));
     const forkAll = (runs: Run[], f: (r: Run) => Effect.Effect<Run | undefined, StoreError, Services>) =>
       Effect.as(
-        Effect.forEach(runs, r =>
-          fork!(r.id, r.workflow === router ? undefined : graph.limits.parallel, f(r).pipe(Effect.catch(logged(r))))
-        ),
+        Effect.forEach(runs, r => fork!(r.id, f(r).pipe(Effect.catch(logged(r))))),
         []
       );
     const drive = (r: Run) => runWorkflow(graph.workflows[r.workflow]!, r, graph);
@@ -809,7 +839,7 @@ const readIssueScan = (
         true,
         debounce,
         meta,
-        fork && ((id, parallel, effect) => fork(id, parallel, Effect.provideService(effect, Tracker, tracker))),
+        fork && ((id, effect) => fork(id, Effect.provideService(effect, Tracker, tracker))),
         n => deferred.add(n)
       ).pipe(
         Effect.provideService(Tracker, {
@@ -963,16 +993,14 @@ export const scanTrackerEvents = (
     return pickNewest(cursor, ...events.map(m => m.at)) ?? cursor;
   });
 
-export const startLoopDrives = (host?: Semaphore.Semaphore) => {
+export const startLoopDrives = () => {
   const scope = Scope.makeUnsafe();
   return {
-    host,
     passes: Effect.runSync(Scope.provide(FiberSet.make(), scope)),
     driving: new Set<string>(),
     gates: new Map<number, Semaphore.Semaphore>(),
     due: new Map<number, string>(),
     cursor: new Date(Date.now() - 300_000).toISOString(),
-    permits: Semaphore.makeUnsafe(1),
     settled: [] as Run[],
     stop: () => Effect.runPromise(Scope.close(scope, Exit.void)),
   };
@@ -988,23 +1016,18 @@ export const runPass = <A, E, R>(
       drives.passes,
       Effect.gen(function* () {
         const own = yield* FiberSet.make<Run | undefined>();
-        const fork: Parameters<typeof pass>[0] = (id, parallel, effect) =>
-          Effect.andThen(
-            parallel === undefined ? Effect.void : drives.permits.resize(parallel),
-            Effect.suspend(() => {
-              if (drives.driving.has(id)) return Effect.void;
-              drives.driving.add(id);
-              return FiberSet.run(
-                own,
-                effect.pipe(
-                  drives.host && parallel !== undefined ? drives.host.withPermits(1) : identity,
-                  parallel === undefined ? identity : drives.permits.withPermits(1),
-                  Effect.tap(r => Effect.sync(() => r && drives.settled.push(r))),
-                  Effect.ensuring(Effect.sync(() => drives.driving.delete(id)))
-                )
-              );
-            })
-          );
+        const fork: Parameters<typeof pass>[0] = (id, effect) =>
+          Effect.suspend(() => {
+            if (drives.driving.has(id)) return Effect.void;
+            drives.driving.add(id);
+            return FiberSet.run(
+              own,
+              effect.pipe(
+                Effect.tap(r => Effect.sync(() => r && drives.settled.push(r))),
+                Effect.ensuring(Effect.sync(() => drives.driving.delete(id)))
+              )
+            );
+          });
         yield* Effect.andThen(
           Effect.flatMap(Effect.exit(pass(fork)), exit => Deferred.done(decided, exit)),
           FiberSet.awaitEmpty(own)

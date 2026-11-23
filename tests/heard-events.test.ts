@@ -164,7 +164,7 @@ it('sends a changes-requested review back with its line comments when the review
         issue: { ...pull, number: 7, events: [] },
         pull: { ...pull, events },
       });
-    }).pipe(Effect.provide(fileStore(tmp('heard-review'))))
+    }).pipe(Effect.provide([fileStore(tmp('heard-review')), folderTracker(tmp('heard-review-tracker'))]))
   );
   expect(heard?.outcome).toEqual({
     kind: 'back',

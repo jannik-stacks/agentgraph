@@ -169,15 +169,17 @@ const concurrency = {
 };
 
 const startsOn = (event: string, t: NonNullable<Workflow['on'][keyof Workflow['on']]>) =>
-  t.label
-    ? `Adding the ${t.label} label to an issue starts a run.`
-    : event === 'dispatch'
-      ? 'A run proposal from another workflow starts a run.'
-      : event === 'feedback'
-        ? 'What a trusted person says or pushes where another run worked starts a retro.'
-        : t.branches
-          ? `${event.replace('_', ' ')} on ${t.branches.join(', ')}: accepted, starts nothing yet.`
-          : `Each ${event.replace('_', ' ')} event starts a run.`;
+  typeof t === 'string'
+    ? `A trusted ${event.replace('_', ' ')} event reaches a live run as ${t}.`
+    : t.label
+      ? `Adding the ${t.label} label to an issue starts a run.`
+      : event === 'dispatch'
+        ? 'A run proposal from another workflow starts a run.'
+        : event === 'feedback'
+          ? 'What a trusted person says or pushes where another run worked starts a retro.'
+          : t.branches
+            ? `${event.replace('_', ' ')} on ${t.branches.join(', ')}: accepted, starts nothing yet.`
+            : `Each ${event.replace('_', ' ')} event starts a run.`;
 
 export const WorkflowDetails = ({ workflow }: { workflow: Workflow }) => (
   <div className="space-y-5 p-4 text-xs">

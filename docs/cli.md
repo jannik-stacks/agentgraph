@@ -66,7 +66,7 @@ Hosted trackers refuse `start`, `say`, `review`, `merge`, `close` and `export`. 
 | `--once` | `loop` | One pass |
 | `--detach` | `loop` | Background; print PID after locking checkouts; logs under `<data root>/logs/` |
 | `--force` | `stop`, `restart` | SIGTERM immediately |
-| `--parallel <n>` | `loop`, `restart` | Cap drives across instances alongside `limits.parallel`; incompatible with `--once` |
+| `--parallel <n>` | `loop`, `restart` | Cap sandbox commands across instances alongside `limits.parallel`; incompatible with `--once` |
 | `--apply` | `prune-logs` | Delete logs |
 | `--from <commit>` | `import` | Starting commit; default parent, or `HEAD` for patches |
 | `--meta <file>` | `import` | JSON for `meta.engine.origin.input` |
@@ -85,6 +85,7 @@ See [settings precedence](local.md#named-instances-and-settings). Variables link
 | Variables | Reference |
 | --- | --- |
 | `AGENTGRAPH_APP_ENV`, `AGENTGRAPH_APP_ID`, `AGENTGRAPH_APP_KEY`, `AGENTGRAPH_APP_KEY_FILE` | [App credentials](github.md#the-key) |
+| `AGENTGRAPH_FORK` | [Work from a fork](github.md#work-from-a-fork) |
 | `AGENTGRAPH_DATA`, `AGENTGRAPH_TRACKER`, `AGENTGRAPH_TRACKER_DIR`, `AGENTGRAPH_REPO`, `AGENTGRAPH_TRUST` | [Instance settings](local.md#named-instances-and-settings) |
 | `AGENTGRAPH_DIR` | [Graph selection](reference.md#which-graph-runs) |
 | `AGENTGRAPH_STATE` | [Host state](sandbox.md#environments) |

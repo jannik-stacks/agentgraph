@@ -1,4 +1,4 @@
-import { Schema, type Types } from 'effect';
+import { Schema, Struct, type Types } from 'effect';
 import { Proposal } from './proposal.ts';
 
 export const Count = Schema.Int.check(Schema.isGreaterThan(0));
@@ -10,6 +10,17 @@ export const labelPrefix = 'agent:';
 export const limitLabels = { 'usd-per-run': 'usdPerRun', minutes: 'minutes' } as const;
 
 const Text = Schema.optionalKey(Schema.String);
+
+export const Heard = Schema.Literals(['answer', 'back', 'pass', 'stop', 'none']);
+export type Heard = typeof Heard.Type;
+
+export const HeardKinds = Schema.Struct({
+  comment: Schema.optionalKey(Heard),
+  approved: Schema.optionalKey(Heard),
+  changes_requested: Schema.optionalKey(Heard),
+  merged: Schema.optionalKey(Heard),
+});
+export const heardKinds = Struct.keys(HeardKinds.fields);
 
 export const Issue = Schema.Struct({
   number: Count,
@@ -42,6 +53,32 @@ export const Comment = Schema.Struct({
   under: Text,
 });
 export type Comment = Types.Mutable<typeof Comment.Type>;
+
+export const parseAgentRequest = (said: string): NonNullable<Comment['agentRequest']> => {
+  const command = /^:(\S+)/.exec(said)?.[1];
+  const text = said.slice(command === undefined ? 0 : command.length + 1).replace(/^[\s,:]+/, '');
+  return { ...(command && { command }), text: text.trim() };
+};
+
+export const formatLiteralPattern = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+export const findRequest = (body: string, marks: readonly string[] = ['/agent', '@agent']): Comment['agentRequest'] => {
+  const mark = new RegExp(`(?<![\\w./-])(?:${marks.map(formatLiteralPattern).join('|')})(?![\\w/-])`, 'i');
+  let fenced = false;
+  let offset = 0;
+  for (const line of body.split('\n')) {
+    const start = offset;
+    offset += line.length + 1;
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    if (fenced || /^\s*>/.test(line)) continue;
+    const found = mark.exec(line);
+    if (!found) continue;
+    const { command, text } = parseAgentRequest(body.slice(start + found.index + found[0].length));
+    const before = body.slice(0, start + found.index).trimEnd();
+    return { ...(command && { command }), text: `${before} ${text}`.trim().replace(/^:+/, '') };
+  }
+  return undefined;
+};
 
 export const Event = Schema.Struct({
   source: Schema.optionalKey(Schema.Literal('cli')),

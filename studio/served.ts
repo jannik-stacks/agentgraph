@@ -108,9 +108,11 @@ const readInstanceServed = async ({ root, graph: explicit }: StudioInstances, na
 const readPlainServed = async (): Promise<ServedGraph> => {
   const { AGI_STUDIO_DIR: dir, AGI_STUDIO_DATA: data, AGI_STUDIO_TRACKER: tracker } = process.env;
   const { folder } = await readModule<typeof TrackerModule>('src/tracker.ts');
-  const { Option } = await import('effect');
+  const { ConfigProvider, Option } = await import('effect');
   const setup =
-    tracker === undefined ? undefined : folder.tracker!({ repo: '', studio: '', app: Option.none(), dir: tracker });
+    tracker === undefined
+      ? undefined
+      : folder.tracker!({ repo: '', studio: '', app: Option.none(), config: ConfigProvider.fromEnv(), dir: tracker });
   const makeHost = async (graph?: Graph) =>
     data
       ? {

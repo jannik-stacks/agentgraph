@@ -7,9 +7,11 @@ import { findDeadCheckouts, getCachePath, getCheckoutPaths, removeCheckout, writ
 import { removeBranch } from './disk.ts';
 import { commitCheckout, commitCheckoutOnce, hostGit, readGit, readBranches, readWorktreeAdmin } from './git.ts';
 import { type Box, Runner, Sandbox, SandboxError } from './sandbox.ts';
-import { type Checkout, type Command, type Exit, type TrackerError } from './types.ts';
+import { branchPrefix, type TrackerSetup } from './tracker.ts';
+import type { Checkout, Command, Exit } from './types.ts';
 
 const fetched = ['+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*', '+HEAD:refs/remotes/origin/HEAD'];
+const agentHeads = `refs/heads/${branchPrefix}*`;
 const outputLimit = 64 << 10;
 
 const infra = (detail: string) => new SandboxError({ reason: 'infra', detail });
@@ -22,12 +24,7 @@ const auth = (token: string) => ({
 
 const mirrorLocks = new Map<string, Semaphore.Semaphore>();
 
-export const makeSandbox = (o: {
-  data: string;
-  origin: string;
-  local?: boolean;
-  token?: Effect.Effect<string, TrackerError>;
-}): Layer.Layer<Sandbox, never, Runner> =>
+export const makeSandbox = (o: { data: string } & TrackerSetup['origin']): Layer.Layer<Sandbox, never, Runner> =>
   Layer.effect(
     Sandbox,
     Effect.gen(function* () {
@@ -60,7 +57,13 @@ export const makeSandbox = (o: {
               () => false
             )
           );
-          const env = o.token ? auth(yield* Effect.mapError(o.token, e => infra(e.message))) : {};
+          const env = (token = o.token) =>
+            token
+              ? Effect.map(
+                  Effect.mapError(token, e => infra(e.message)),
+                  auth
+                )
+              : Effect.succeed({});
           if (!exists) {
             yield* Effect.promise(() => mkdir(dirname(mirror), { recursive: true }));
             const part = `${mirror}.${randomBytes(4).toString('hex')}`;
@@ -68,7 +71,13 @@ export const makeSandbox = (o: {
             yield* Effect.asVoid(hostGit({ GIT_DIR: part }, ['config', 'remote.origin.url', o.origin]));
             yield* Effect.promise(() => rename(part, mirror).catch(() => rm(part, { recursive: true, force: true })));
           }
-          yield* inMirror(['fetch', '--prune', '--update-head-ok', 'origin', ...fetched], env);
+          const kept = o.branches ? [`^${agentHeads}`] : [];
+          yield* inMirror(['fetch', '--prune', '--update-head-ok', 'origin', ...fetched, ...kept], yield* env());
+          if (o.branches)
+            yield* inMirror(
+              ['fetch', '--prune', '--update-head-ok', o.branches.origin, `+${agentHeads}:${agentHeads}`],
+              yield* env(o.branches.token)
+            );
         })
       );
       const verify = (name: string) =>

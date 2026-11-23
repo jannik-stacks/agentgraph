@@ -7,7 +7,8 @@ import { TestClock } from 'effect/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { Tracker, currentRunLinkRef } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
-import { githubTracker } from '../src/github.ts';
+import { github, githubTracker } from '../src/github.ts';
+import { makeEnvProvider } from '../src/harnesses.ts';
 import { makeProductionLayers, settings } from '../src/services.ts';
 import { tmp } from './kit.ts';
 import { type Checkout, TrackerError } from '../src/types.ts';
@@ -86,6 +87,14 @@ const findMutations = (f: ReturnType<typeof fake>) =>
 
 const run = <A, E>(f: ReturnType<typeof fake>, effect: Effect.Effect<A, E, Tracker>) =>
   Effect.runPromise(Effect.provide(effect, githubTracker(app, f.fetch)));
+
+const forked = (f: ReturnType<typeof fake>) =>
+  githubTracker(app, f.fetch, () => Effect.succeed('user'), undefined, undefined, undefined, {
+    repo: 'me/r',
+    token: () => Effect.succeed('fork'),
+  });
+
+const hidden: Route = () => ({ status: 403, body: { message: 'Must have push access' } });
 
 const issue = (n: number, more: object = {}) => ({
   id: 1000 + n,
@@ -862,6 +871,68 @@ describe('githubTracker', () => {
     ]);
   });
 
+  it('reads the fork out of the host config and names it as the remote for branches', () => {
+    const read = ['me/r', '', 'me'].map(fork =>
+      Result.try(() =>
+        github.tracker!({
+          repo: 'o/r',
+          studio: '',
+          app: Option.some({ id: app.id, key: app.key }),
+          config: makeEnvProvider({ AGENTGRAPH_FORK: fork }),
+        })
+      ).pipe(
+        Result.map(setup => [setup.origin.origin, setup.origin.branches?.origin]),
+        Result.getOrElse(String)
+      )
+    );
+    expect(read).toEqual([
+      ['https://github.com/o/r.git', 'https://github.com/me/r.git'],
+      ['https://github.com/o/r.git', undefined],
+      'Error: AGENTGRAPH_FORK names a repository as owner/name',
+    ]);
+  });
+
+  it('reads upstream as the token user, knows its fork pull requests and survives a hidden permission', async () => {
+    const window = 'sort=updated&direction=asc&per_page=100';
+    const mine = pull(8, { head: { ref: 'agentgraph/8', sha: 'head8', repo: { full_name: 'me/r' } } });
+    const byHand = { ref: 'feature', sha: 'head10', repo: { full_name: 'me/r' } };
+    const commit = { message: 'By hand', committer: { date: '2026-10-16T10:00:05Z' } };
+    const f = fake({
+      'GET /user': { login: 'me' },
+      'GET /repos/o/r/issues?state=open&per_page=100': [
+        issue(8, { pull_request: {}, user: { login: 'me' }, author_association: 'NONE' }),
+        issue(9, { pull_request: {}, user: { login: 'mallory' }, author_association: 'NONE' }),
+        issue(10, { pull_request: {} }),
+      ],
+      'GET /repos/o/r/pulls?state=open&per_page=100': [mine, pull(9), { ...mine, number: 10, head: byHand }],
+      [`GET /repos/o/r/issues/comments?${window}`]: [comment(1, 'carol', 'MEMBER', '/agent go')],
+      [`GET /repos/o/r/pulls/comments?${window}`]: [],
+      'GET /repos/o/r/issues/events?per_page=100': [],
+      'GET /repos/o/r/pulls/8/reviews?per_page=100': [],
+      'GET /repos/o/r/pulls/9/reviews?per_page=100': [],
+      'GET /repos/o/r/pulls/10/reviews?per_page=100': [],
+      'GET /repos/o/r/pulls/8/commits?per_page=100': [{ sha: 'c1', author: { login: 'dave' }, commit }],
+      'GET /repos/o/r/collaborators/carol/permission': hidden,
+      'GET /repos/o/r/collaborators/dave/permission': hidden,
+    });
+    const [issues, events] = await Effect.runPromise(
+      Effect.flatMap(Tracker, tracker =>
+        Effect.all([tracker.issues({ state: 'open' }), Stream.runCollect(tracker.since(''))])
+      ).pipe(Effect.provide(forked(f)))
+    );
+    expect(issues.map(t => [t.title, t.pull?.branch])).toEqual([
+      ['Issue 8', 'agentgraph/8'],
+      ['(title by @mallory withheld: not a collaborator)', 'o/r:agentgraph/9'],
+      ['Issue 10', 'me/r:feature'],
+    ]);
+    expect(events.map(m => [m.kind, m.actor, m.trusted])).toEqual([
+      ['comment', 'carol', false],
+      ['commit', 'dave', false],
+    ]);
+    const auths = f.calls.filter(c => c.path !== '/app').map(c => c.headers.get('authorization'));
+    expect(new Set(auths)).toEqual(new Set(['Bearer user']));
+  });
+
   it('shows commit titles on its own branches only from people who may write', async () => {
     const at = '2026-10-16T10:00:00Z';
     const f = fake({
@@ -1520,6 +1591,7 @@ describe('githubTracker', () => {
       const patch = f.calls.find(c => c.method === 'PATCH')!;
       expect(patch.body).toEqual({
         title: 'T',
+        base: 'agentgraph/11',
         body: '<!-- agentgraph status -->\n※ done\n<!-- end agentgraph status -->\n\nB',
       });
     });
@@ -1671,7 +1743,7 @@ describe('githubTracker', () => {
       const content = Buffer.from(base64, 'base64');
       return createHash('sha1').update(`blob ${content.length}\0`).update(content).digest('hex');
     };
-    const dataApi = (work: Checkout, more: Record<string, Route> = {}) => {
+    const dataApi = (work: Checkout, more: Record<string, Route> = {}, at = 'o/r') => {
       const bare = tmp('bare');
       sh(['init', '-q', '--bare', bare]);
       writeFileSync(join(bare, 'objects', 'info', 'alternates'), `${join(work.git.GIT_DIR, 'objects')}\n`);
@@ -1684,8 +1756,8 @@ describe('githubTracker', () => {
           const sha = tip(/\/git\/ref\/(.+)$/.exec(path)?.[1] ?? 'none');
           return sha ? { body: { object: { sha } } } : { status: 404 };
         },
-        'POST /repos/o/r/git/blobs': (body: { content: string }) => ({ body: { sha: blobSha(body.content) } }),
-        'POST /repos/o/r/git/trees': (body: {
+        [`POST /repos/${at}/git/blobs`]: (body: { content: string }) => ({ body: { sha: blobSha(body.content) } }),
+        [`POST /repos/${at}/git/trees`]: (body: {
           base_tree: string;
           tree: { path: string; mode: string; sha: string | null }[];
         }) => {
@@ -1700,12 +1772,12 @@ describe('githubTracker', () => {
             );
           return { body: { sha: remote(['write-tree'], env) } };
         },
-        'POST /repos/o/r/git/commits': (body: { message: string; tree: string; parents: string[] }) => ({
+        [`POST /repos/${at}/git/commits`]: (body: { message: string; tree: string; parents: string[] }) => ({
           body: {
             sha: remote(['commit-tree', body.tree, ...body.parents.flatMap(p => ['-p', p])], {}, body.message),
           },
         }),
-        'POST /repos/o/r/git/refs': (body: { ref: string; sha: string }) => {
+        [`POST /repos/${at}/git/refs`]: (body: { ref: string; sha: string }) => {
           remote(['update-ref', body.ref, body.sha]);
           return { status: 201, body: {} };
         },
@@ -1750,6 +1822,47 @@ describe('githubTracker', () => {
       expect(head.ref).toBe('refs/heads/agentgraph/7');
       expect(applied).toMatchObject({ ok: true, held: [], url: `https://github.com/o/r/commit/${head.sha}` });
       expect(f.calls.filter(c => c.path === '/repos/o/r/git/blobs')).toHaveLength(2);
+    });
+
+    it('pushes the branch to the fork and opens the pull request upstream, each with its own token', async () => {
+      const { dir, work } = repo();
+      writeFileSync(join(dir, 'a.txt'), 'two\n');
+      const made = { number: 9, html_url: 'https://github.com/o/r/pull/9' };
+      const f = dataApi(work, { 'POST /repos/o/r/pulls': made }, 'me/r');
+      const applied = await Effect.runPromise(
+        Effect.flatMap(Tracker, tracker =>
+          Effect.forEach(
+            [
+              { kind: 'push', branch: 'agentgraph/7', message: 'Fix' },
+              { kind: 'pull_request', branch: 'agentgraph/7', base: 'main', title: 'Fix', body: 'Closes #7' },
+              { kind: 'comment', body: 'done' },
+              { kind: 'label', add: ['ready'] },
+              { kind: 'merge', number: 9, head: 'abc' },
+            ] satisfies Proposal[],
+            p => tracker.apply(7, p, work)
+          )
+        ).pipe(Effect.provide(forked(f)))
+      );
+      const head = f.calls.find(c => c.path === '/repos/me/r/git/refs')!.body!;
+      expect(applied.map(a => [a.ok, a.url ?? a.reason])).toEqual([
+        [true, `https://github.com/me/r/commit/${head.sha}`],
+        [true, 'https://github.com/o/r/pull/9'],
+        [true, 'not sent: o/r takes only pull requests'],
+        [true, 'not sent: o/r takes only pull requests'],
+        [false, 'o/r takes only pull requests, no merge'],
+      ]);
+      const sent = f.calls.filter(c => c.method !== 'GET');
+      expect(sent.map(c => [c.path.split('/').slice(2, 4).join('/'), c.headers.get('authorization')])).toEqual([
+        ...sent.slice(0, -1).map(() => ['me/r', 'Bearer fork']),
+        ['o/r', 'Bearer user'],
+      ]);
+      expect(sent.at(-1)!.body).toEqual({
+        title: 'Fix',
+        head: 'me:agentgraph/7',
+        head_repo: 'r',
+        base: 'main',
+        body: 'Closes #7',
+      });
     });
 
     it('builds the next push on the last pushed commit, so it is a fast-forward', async () => {

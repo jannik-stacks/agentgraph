@@ -29,7 +29,9 @@ export const findLatestChecks = (entries: CheckEntry[], versions: Record<string,
 };
 
 export const getRunSpend = (lines: (Trace | CheckEntry)[]) =>
-  sumSpend(lines.map(line => ('session' in line ? line.session : 'check' in line ? line : {})));
+  sumSpend(
+    lines.map(line => ('session' in line ? line.session : 'heard' in line ? line.heard : 'check' in line ? line : {}))
+  );
 
 export const formatSpend = ({ usd, unpriced }: ReturnType<typeof sumSpend>) =>
   `$${usd.toFixed(2)}${unpriced === undefined ? '' : '+'}`;
