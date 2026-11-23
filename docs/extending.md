@@ -1,37 +1,27 @@
 # Extending agentgraph
 
-Graphs configure workflows; harnesses, providers and plugins extend how they run.
-
-## Trackers
-
-A tracker reads issues and applies writes. Two ship as built-in plugins: `github` uses a GitHub App, and `folder` keeps issues in a local folder. A plugin with a `tracker` member adds another; see [Trackers](plugins.md#trackers). <!-- code: src/tracker.ts#Tracker src/services.ts#makeTrackerSetup src/main.ts#start -->
-
-## Harnesses
-
-Claude Code, Codex, opencode and pi ship as harnesses. In `agentgraph.config.ts`, add or replace entries in `harnesses`. Each supplies a command and output parser, and can check tool settings. A harness whose usage reports total the whole session, resumes included, sets `cumulative`. Set `AGENTGRAPH_CONFIG` to load your own config file. See [Harnesses](sandbox.md#harnesses). <!-- code: src/harnesses.ts#Harness src/harnesses.ts#readHarnessSettings -->
-
-## Providers
-
-Claude and ChatGPT subscriptions, Anthropic keys and LiteLLM ship as providers. Add or replace entries in the config's `providers` list. Each names its harnesses, checks whether it is ready, and can supply settings and login. See [Providers](sandbox.md#providers). <!-- code: src/harnesses.ts#Provider harnesses/providers.ts#makeProviders -->
+Start with the part you want to change. A graph describes work on an issue. Harnesses run agent sessions, providers supply model access, and plugins connect the engine to other services. See [Terms](index.md#terms). <!-- code: src/folder.ts#Graph src/harnesses.ts#Harness src/harnesses.ts#Provider src/plugin.ts#makePlugin -->
 
 ## Graphs
 
-The package ships a starter example; the clone has [more example graphs](../README.md#examples). [Copy one](local.md#first-run) and edit its workflows, agents, skills and checks. The engine requires you to choose a graph. These are plain files; see [The graph folder](reference.md). <!-- code: src/instance.ts#ensureGraph -->
+[Copy the starter](local.md#first-run) or choose an [example graph](../README.md#examples). Edit its Markdown and YAML files to change which agents run, what they can propose and how their work is checked. See [The graph folder](reference.md), [workflow triggers](workflows.md#what-starts-a-run) and [proposal kinds](proposals.md#kinds). <!-- code: src/instance.ts#ensureGraph src/folder.ts#loadGraph src/workflow.ts#Front src/proposal.ts#Kind -->
+
+## Trackers
+
+To connect an issue tracker, choose a [built-in tracker or supply a tracker plugin](plugins.md#trackers). <!-- code: src/services.ts#makeTrackerSetup -->
+
+## Harnesses
+
+Claude Code, Codex, opencode and pi ship as harnesses. A harness supplies a command and an output parser, and can check tool settings. Set `cumulative` if its usage reports cover the whole session, including resumed turns. Add your harness to the config's `harnesses` list. See [Harnesses](sandbox.md#harnesses) for config selection and `AGENTGRAPH_CONFIG`. <!-- code: agentgraph.config.ts src/harnesses.ts#Harness src/harnesses.ts#readHarnessSettings -->
+
+## Providers
+
+The shipped providers support Claude and ChatGPT subscriptions, Anthropic keys and LiteLLM. To add a provider, add an entry to the config's `providers` list. It names the harnesses it supports, checks whether credentials are ready, and can supply settings and login instructions. See [Providers](sandbox.md#providers). <!-- code: harnesses/providers.ts#makeProviders src/harnesses.ts#Provider -->
 
 ## Plugins
 
-Reviewed TypeScript files in the graph's `plugins/` folder export `makePlugin(...)`. A plugin can supply agent tools, status hooks, a tracker, a runner, studio auth or a studio page. Its `settingsSchema` decodes `plugins.<name>` in `settings.yaml`. See [Plugins](plugins.md) for each member's interface.
-<!-- code: src/plugin.ts#makePlugin src/plugin.ts#readPlugins src/plugin.ts#StatusChange src/plugin.ts#TrackerHost src/plugin.ts#RunnerHost src/plugin.ts#AuthHost -->
+See [Plugins](plugins.md) to add tools, status or event hooks, a tracker, a runner, studio authentication or a studio page. See [Architecture](architecture.md#the-studio) for the host interfaces behind studio pages. <!-- code: src/plugin.ts#makePlugin src/plugin.ts#EventHook src/engine.ts#makeInstanceHost -->
 
-Plugins run as trusted host code. Studio readers get instance hosts for run and tracker reads; browser actions require studio authorization.
-<!-- code: src/engine.ts#makeInstanceHost src/actions.ts#Actions -->
+## Bench and Tune
 
-The engine's built-in [triggers](workflows.md#what-starts-a-run) and [proposal kinds](proposals.md#kinds) define what workflows can use.
-
-## Bench
-
-[Bench](bench.md) replays merged changes and compares agents. Its runner and scorer live in the engine clone at `bin/bench.ts` and `bench/`. The studio page is an example plugin in `examples/plugins/bench`, loaded with `agi studio --plugins examples/plugins/bench`. <!-- code: examples/plugins/bench/plugins/bench.ts bench/runs.ts#readBenchData bin/bench.ts#runArm -->
-
-## Tune
-
-Tune is an experimental clone-only tool that tests graph changes through Bench, with little test coverage and unstable commands and files. Submit a candidate with `node bin/tune.ts propose <tune dir> --from <graph dir> --why <text>`.
+Use [Bench](bench.md) to compare workflows on merged changes and [Tune](bench.md#tune) to test a candidate graph. Both tools run from a clone. <!-- code: bin/bench.ts#runArm bin/tune.ts#propose package.json -->

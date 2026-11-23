@@ -4,7 +4,7 @@ The GitHub App polls without webhooks. See [Workflows](workflows.md#what-starts-
 
 ## Create the App
 
-From an agentgraph checkout:
+Run the setup command from an agentgraph checkout. Use the second form for an organization. <!-- code: bin/setup-app.ts#setupApp -->
 
 ```sh
 node bin/setup-app.ts
@@ -17,7 +17,7 @@ The App requests write access to contents, pull requests and issues, and read ac
 
 ## The key
 
-Setup stores the private key in the macOS login Keychain or a private `key.pem` beside `app.env`. The wrapper passes Keychain keys through `/dev/fd/3`:
+Setup stores the private key in the macOS login Keychain or a private `key.pem` beside `app.env`. The wrapper passes Keychain keys through `/dev/fd/3`. <!-- code: bin/setup-app.ts#saveKeyInKeychain infra/github/with-key.sh -->
 
 ```sh
 npm run with-key -- <slug> loop --instance live --data ~/agentgraph-data
@@ -28,7 +28,7 @@ npm run keychain-import -- <slug>
 
 ## Project boards
 
-[Column triggers](workflows.md#project-boards) need a user token with `read:project`. The engine reads `AGENTGRAPH_PROJECT_TOKEN`, then falls back to `gh auth token`.
+[Column triggers](workflows.md#project-boards) need a user token with `read:project`. The engine reads `AGENTGRAPH_PROJECT_TOKEN`, then falls back to `gh auth token`. <!-- code: src/github.ts#readProjectToken -->
 
 ```sh
 gh auth refresh -s read:project
@@ -38,7 +38,12 @@ gh auth refresh -s read:project
 
 ## Start the engine
 
-Configure a [named instance](local.md#named-instances-and-settings) with a checkout, graph and `tracker: github`. Put App and [model settings](sandbox.md#models) in its env file. <!-- code: src/instance.ts#readInstance src/instance.ts#ensureGraph -->
+Configure a [named instance](local.md#named-instances-and-settings) with a checkout and a graph. Set these fields in its existing `instance.yaml`. The GitHub tracker uses `repo` for repository API requests. You can also set the repository with `AGENTGRAPH_REPO`. Put App credentials and [model settings](sandbox.md#models) in the instance env file. <!-- code: src/main.ts#readInstanceEnv src/github.ts#github src/instance.ts#readInstance src/instance.ts#ensureGraph -->
+
+```yaml
+tracker: github
+repo: acme/mono
+```
 
 ```sh
 agi loop --instance live --data ~/agentgraph-data
