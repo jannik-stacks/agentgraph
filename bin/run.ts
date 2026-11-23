@@ -15,10 +15,11 @@ import { hostname } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { Config, ConfigProvider, Effect, Fiber, Redacted, Schedule, Schema, Semaphore, Stream } from 'effect';
+import { Config, ConfigProvider, Effect, Fiber, Redacted, Schedule, Schema, Stream } from 'effect';
 import { readArgs } from '../src/cli.ts';
 import { makeInstanceHost, readEngineErrors, runLocalActions } from '../src/engine.ts';
 import { startLoopDrives, type Instruction } from '../src/run/trigger.ts';
+import { makeSlots } from '../src/run/execute.ts';
 import type { Graph } from '../src/folder.ts';
 import { formatAgentComment, Tracker, waitForTrackerEdit } from '../src/tracker.ts';
 import { readConfiguredGraph, readHarnessSettings, splitNames, type Provider } from '../src/harnesses.ts';
@@ -760,7 +761,7 @@ async function loop(instances: Instance[]) {
   if (parallel !== undefined && !(Number.isInteger(parallel) && parallel > 0))
     fail(`--parallel takes a whole number above 0\n${usage}`);
   if (parallel !== undefined && values.once) fail(`--parallel caps a continuous loop; drop --once or --parallel`);
-  const shared = parallel === undefined ? undefined : Semaphore.makeUnsafe(parallel);
+  const shared = parallel === undefined ? undefined : makeSlots(parallel);
   const served: Promise<void>[] = [];
   trapInterrupt(() => (stopping.abort(), Promise.allSettled(served).then(() => {})));
   const several = instances.length > 1;
@@ -833,7 +834,7 @@ async function detach(instances: Instance[]) {
 async function serve(
   instance: Instance,
   tag: string,
-  shared: Semaphore.Semaphore | undefined,
+  shared: ReturnType<typeof makeSlots> | undefined,
   served: Promise<void>[]
 ) {
   const lock = await createLoopLock(
@@ -863,7 +864,7 @@ async function serve(
   }
 }
 
-async function serveLocked(instance: Instance, tag: string, shared: Semaphore.Semaphore | undefined) {
+async function serveLocked(instance: Instance, tag: string, shared: ReturnType<typeof makeSlots> | undefined) {
   let scope = await readInstanceEnv(instance, makeHarnessChoice(values.provider), defaults, commandEnv);
   scope.env.AGENTGRAPH_DIR = await ensureInstanceGraph(instance, values.dir ?? scope.env.AGENTGRAPH_DIR);
   const opened = await openTracker(instance, scope);
@@ -882,8 +883,8 @@ async function serveLocked(instance: Instance, tag: string, shared: Semaphore.Se
     tag
   );
   scope = connection.scope;
-  const drives = values.once ? undefined : startLoopDrives(shared);
-  const sessions = Semaphore.makeUnsafe(1);
+  const drives = values.once ? undefined : startLoopDrives();
+  const slots = { sessions: makeSlots(), parallel: shared?.narrow() ?? makeSlots() };
   const done = new AbortController();
   const halted = AbortSignal.any([stopping.signal, done.signal]);
   const selected = formatInstanceFlags(i.checkout, root, basename(i.dir));
@@ -898,7 +899,7 @@ async function serveLocked(instance: Instance, tag: string, shared: Semaphore.Se
         ...overrides,
         setup: { ...scope, tracker: setup },
         choice: makeHarnessChoice(connection.provider.name),
-        sessions,
+        slots,
         ...(drives && { drives }),
         ...(poll && { poll }),
       },

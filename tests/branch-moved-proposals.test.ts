@@ -185,7 +185,12 @@ describe('a run branch that moved', () => {
       names.map(name => [name, { ...small.checks.types!, name, run: 'printf identical-output' }])
     );
     const checked = { ...flow, steps: flow.steps.map(step => ({ ...step, checks: names })) };
-    const kit = { ...small, checks, workflows: { issue: checked } };
+    const kit = {
+      ...small,
+      checks,
+      workflows: { issue: checked },
+      limits: { ...small.limits, parallel: names.length },
+    };
     const sandbox = Layer.effect(
       Sandbox,
       Effect.gen(function* () {
