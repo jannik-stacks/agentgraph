@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Context, Effect, Semaphore, Stream, Option } from 'effect';
+import { Context, Deferred, Effect, Exit, Stream, Option } from 'effect';
 import { Tracker } from '../tracker.ts';
 import { Store } from '../store.ts';
 import { Session } from '../session.ts';
@@ -54,21 +54,68 @@ export const runShell = (
         network,
         minutes,
       })
-    ).pipe(withSessionPermit(graph))
+    ).pipe(waitForSlot(graph, 'parallel'))
   );
 
 type Ended = Pick<Extract<Trace, { session: unknown }>['session'], 'ended' | 'exit' | 'used'>;
 
-export const sessionPermitsRef = Context.Reference<Semaphore.Semaphore>('agentgraph/sessionPermits', {
-  defaultValue: () => Semaphore.makeUnsafe(1),
+type SlotRank = { stage: number; started: string };
+
+type SlotCap = { size: number; held: number };
+
+export const makeSlots = (first = 1) => {
+  const waiting: { rank: SlotRank; caps: SlotCap[]; entered: Deferred.Deferred<void> }[] = [];
+  const admit = () => {
+    for (const next of waiting.slice()) {
+      if (next.caps.some(c => c.held >= c.size)) continue;
+      for (const c of next.caps) c.held++;
+      waiting.splice(waiting.indexOf(next), 1);
+      Deferred.doneUnsafe(next.entered, Exit.void);
+    }
+  };
+  const open =
+    (caps: [SlotCap, ...SlotCap[]]) =>
+    (rank: SlotRank, resized = caps[0].size) =>
+    <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.uninterruptibleMask(restore => {
+        const mine = { rank, caps, entered: Deferred.makeUnsafe<void>() };
+        caps[0].size = resized;
+        waiting.push(mine);
+        waiting.sort((a, b) => b.rank.stage - a.rank.stage || a.rank.started.localeCompare(b.rank.started));
+        admit();
+        const leave = Effect.sync(() => {
+          for (const c of caps) c.held--;
+          admit();
+        });
+        return restore(Deferred.await(mine.entered)).pipe(
+          Effect.onInterrupt(() =>
+            waiting.includes(mine) ? Effect.sync(() => void waiting.splice(waiting.indexOf(mine), 1)) : leave
+          ),
+          Effect.andThen(Effect.ensuring(restore(effect), leave))
+        );
+      });
+  const own = { size: first, held: 0 };
+  return Object.assign(open([own]), { narrow: (inner = 1) => open([{ size: inner, held: 0 }, own]) });
+};
+
+type Slots = ReturnType<ReturnType<typeof makeSlots>['narrow']>;
+
+export const slotsRef = Context.Reference<{ sessions: Slots; parallel: Slots }>('agentgraph/slots', {
+  defaultValue: () => ({ sessions: makeSlots(), parallel: makeSlots() }),
 });
 
-const withSessionPermit =
-  (graph: Graph) =>
+export const slotRankRef = Context.Reference<() => SlotRank | undefined>('agentgraph/slotRank', {
+  defaultValue: () => () => ({ stage: Infinity, started: '' }),
+});
+
+export const waitForSlot =
+  (graph: Graph, kind: 'sessions' | 'parallel') =>
   <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-    Effect.flatMap(sessionPermitsRef, permits =>
-      Effect.andThen(permits.resize(graph.limits.sessions), permits.withPermits(1)(effect))
-    );
+    Effect.gen(function* () {
+      const slots = yield* slotsRef;
+      const rank = (yield* slotRankRef)();
+      return yield* rank ? slots[kind](rank, graph.limits[kind])(effect) : effect;
+    });
 
 export const runSession = <A = never, R = never>(
   graph: Graph,
@@ -97,11 +144,13 @@ const openSession = <A, R>(
   {
     item,
     until,
+    heard,
     aside,
     dropped,
   }: Partial<{
     item: string | undefined;
     until: Effect.Effect<A, never, R> | undefined;
+    heard: Effect.Effect<A | undefined, never, R>;
     aside: Extract<Trace, { prompt: unknown }>['aside'];
     dropped: string;
   }>,
@@ -174,41 +223,45 @@ const openSession = <A, R>(
           server => Effect.promise(() => server.close())
         )
       : undefined;
-    const talked = session
-      .open(server ? { ...spec, tools: spec.tools.filter(name => !custom.includes(name)), mcp: server } : spec)
-      .pipe(
-        Stream.runForEach(event => {
-          if (event.type === 'start') {
-            started = true;
-            Object.assign(seen, { id: event.session, home: event.home });
-          }
-          if (event.type === 'text') seen.text = event.text;
-          if (event.type === 'usage') seen.spend = sumSpend([seen.spend, event]);
-          if (event.type === 'tool' && spec.returns)
-            seen.result = getRecordedResult(spec.returns, event) ?? seen.result;
-          if (event.type === 'end') {
-            seen.final = event.final;
-            end = {
-              ended: event.exit === 0 ? event.ended : 'error',
-              exit: event.exit,
-              ...pickUsed(event),
-            };
-          }
-          return write({ at: new Date().toISOString(), step, event, key });
-        }),
-        Effect.scoped,
-        withSessionPermit(graph),
-        Effect.catchTag('SessionStop', e =>
-          droppable && !started && e.reason !== 'human' && e.reason !== 'login'
-            ? Effect.sync(() => {
-                seen.final = e.detail ?? e.reason;
-                end = { ended: e.reason };
-              })
-            : Effect.fail(e)
-        ),
-        Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void)),
-        Effect.as(undefined)
-      );
+    const opened = Stream.suspend(() =>
+      session.open(server ? { ...spec, tools: spec.tools.filter(name => !custom.includes(name)), mcp: server } : spec)
+    ).pipe(
+      Stream.runForEach(event => {
+        if (event.type === 'start') {
+          started = true;
+          Object.assign(seen, { id: event.session, home: event.home });
+        }
+        if (event.type === 'text') seen.text = event.text;
+        if (event.type === 'usage') seen.spend = sumSpend([seen.spend, event]);
+        if (event.type === 'tool' && spec.returns) seen.result = getRecordedResult(spec.returns, event) ?? seen.result;
+        if (event.type === 'end') {
+          seen.final = event.final;
+          end = {
+            ended: event.exit === 0 ? event.ended : 'error',
+            exit: event.exit,
+            ...pickUsed(event),
+          };
+        }
+        return write({ at: new Date().toISOString(), step, event, key });
+      }),
+      Effect.scoped,
+      Effect.as(undefined)
+    );
+    const talked = (
+      heard ? Effect.flatMap(heard, a => (a === undefined ? opened : Effect.succeed({ a }))) : opened
+    ).pipe(
+      waitForSlot(graph, 'sessions'),
+      Effect.catchTag('SessionStop', e =>
+        droppable && !started && e.reason !== 'human' && e.reason !== 'login'
+          ? Effect.sync(() => {
+              seen.final = e.detail ?? e.reason;
+              end = { ended: e.reason };
+              return undefined;
+            })
+          : Effect.fail(e)
+      ),
+      Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void))
+    );
     const cut = until
       ? yield* Effect.raceFirst(
           talked,

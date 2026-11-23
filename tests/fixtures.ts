@@ -93,7 +93,7 @@ export const makeTestGraph = (graph: string, checks: Record<string, Omit<Check, 
       Object.entries(f.checks).map(([n, { mode }]) => [n, doc(n, { mode, ...checks[n], version: 'fixture' })])
     ),
     workflows: f.workflows,
-    limits: { minutes: 1, usdPerRun: 10, parallel: 2, sessions: 4 },
+    limits: { minutes: 1, usdPerRun: 10, parallel: 2, sessions: 2 },
   };
 };
 

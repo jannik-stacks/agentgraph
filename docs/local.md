@@ -88,7 +88,7 @@ The studio rereads settings on reload; an explicit `--dir` stays in force. <!-- 
 
 ### One loop for several instances
 
-`loop --instance a --instance b` drives both instances. Outside a repo without `--instance`, it selects records with `loop: true`. Each instance keeps its settings and session permits. `--parallel` caps drives across instances; `--provider` applies to all. Put other flags in each record. <!-- code: bin/run.ts#loop bin/run.ts#serve src/run/trigger.ts#startLoopDrives -->
+`loop --instance a --instance b` drives both instances. Outside a repo without `--instance`, it selects records with `loop: true`. Each instance keeps its settings and slots. `--parallel` caps sandbox commands across instances; `--provider` applies to all. Put other flags in each record. <!-- code: bin/run.ts#loop bin/run.ts#serve src/run/trigger.ts#startLoopDrives -->
 
 Multi-instance loops and studios ignore shell settings for App credentials, tracker, repository, trust, graph and provider, and report this. Use instance records or env files. Failed instances leave others running; the process exits 1. Ctrl-C stops all instances and releases locks. <!-- code: src/main.ts#start src/main.ts#removeShellSettings -->
 

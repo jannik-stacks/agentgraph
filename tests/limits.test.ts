@@ -13,7 +13,7 @@ import { getEventOutcome, transition } from '../src/workflow.ts';
 import { fakeDocker, reply, start } from './fixtures.ts';
 import { driveStored, fresh, graph, makeTestEvent, readTrace, services, w, world } from './world.ts';
 
-const limits: Graph['limits'] = { minutes: 30, usdPerRun: 10, parallel: 2, sessions: 4, max: { usdPerRun: 60 } };
+const limits: Graph['limits'] = { minutes: 30, usdPerRun: 10, parallel: 2, sessions: 2, max: { usdPerRun: 60 } };
 const labelled = (label: string, actor = 'morgan', trusted = true, kind: Event['kind'] = 'label') =>
   makeTestEvent({ issue: 7, kind, actor, trusted, at: '2026-11-11T10:00:00.000Z', label });
 const issue = (...events: Event[]) => ({
