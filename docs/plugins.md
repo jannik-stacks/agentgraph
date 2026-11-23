@@ -45,8 +45,25 @@ Save a PNG or JPEG in sandbox `/tmp`, run `agi file put <path>`, and pass the re
 
 ## Status hooks
 
-`on.status` receives `{ issue, repo, from, to }` after a status change. Its context supplies settings and tracker search. On GitHub, `tracker.writeField(issue, { project, field, value })` needs `project` scope; `null` clears the field. Hooks run in filename order. Errors are logged without stopping the run. See the [board example](../tests/fixtures/triggers/plugins/board.ts).
-<!-- code: src/plugin.ts#StatusChange src/plugin.ts#HookContext src/run/settle.ts#announce src/tracker.ts#Tracker tests/fixtures/triggers/plugins/board.ts#settings -->
+`on.status` receives `{ issue, repo, from, to }` after a status change. Its context supplies settings and tracker search. On GitHub, `tracker.writeField(issue, { project, field, value })` needs `project` scope; `null` clears the field. Hooks run in the order of the `plugins` keys in `settings.yaml`; plugins without settings follow in filename order. Errors are logged without stopping the run. See the [board example](../tests/fixtures/triggers/plugins/board.ts).
+<!-- code: src/plugin.ts#StatusChange src/plugin.ts#HookContext src/run/settle.ts#announce src/run/hear.ts#readHooks src/plugin.ts#readPlugins src/tracker.ts#Tracker tests/fixtures/triggers/plugins/board.ts#settings -->
+
+## Event hooks
+
+`on.event` decides in code what a trusted `comment`, `approved`, `changes_requested` or `merged` event does to a live run. It runs after the workflow's [`on` map](workflows.md#what-a-live-run-hears), in the hook order above.
+
+```ts
+on: {
+  event: ({ event, issue, run, does }, { settings, signal, priceUsd }) =>
+    event.kind === 'comment' && issue.labels.includes(settings.quiet) ? 'none' : undefined,
+}
+```
+
+The hook gets the event, the issue's `number`, `labels` and `author`, the run's `id`, `workflow`, `step` and `status`, and `does`, the outcome so far. It returns `answer`, `back`, `pass`, `stop` or `none`, or `{ does, why, usd }`, or nothing for no opinion. The last hook that returns a value wins. `pass` and `back` apply only at a human wait; elsewhere the earlier outcome stays. Hooks never see commands, bot or untrusted events, comments a router takes, or events of a run paused on limits. <!-- code: src/plugin.ts#EventHook src/plugin.ts#HeardResult src/run/hear.ts#readHeard src/workflow.ts#getHeard -->
+
+The context adds an abort `signal` and `priceUsd(model, tokens)`, which prices a model call with the instance's list prices (`AGENTGRAPH_PRICES`, the bundled table by default). `findRequest(body, marks)` finds a mark outside quotes and code. Each hook has 30 seconds. A throw, a timeout or an unknown result leaves the event untaken: the run keeps waiting and the next pass asks again. Later events of that run wait behind it; a stop still applies. <!-- code: src/run/hear.ts#readHeard src/event.ts#findRequest src/prices.ts#getListPriceUsd -->
+
+The trace keeps one [`heard`](runs.md#the-trace) line per hook and event, so a pass after a failure asks only the hooks that have no line yet. Its `usd` counts toward `usd-per-run`. See the [mention example](../tests/fixtures/triggers/plugins/mention.ts). <!-- code: src/types.ts#Trace src/trace.ts#getRunSpend tests/fixtures/triggers/plugins/mention.ts#settings -->
 
 ## Trackers
 

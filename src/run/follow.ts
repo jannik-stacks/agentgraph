@@ -331,7 +331,7 @@ export const runAside = (
     );
     if (r.ended !== 'stop')
       return yield* new SessionStop({ reason: 'provider', detail: `aside ended ${r.ended} (exit ${r.exit ?? 0})` });
-    const { proposals } = parseProposals(r.final, false);
+    const { proposals, problems } = parseProposals(r.final, true);
     const ungranted = findUngranted(to, graph, proposals, true);
     if (ungranted.length > 0) return yield* new SessionStop({ reason: 'provider', detail: ungranted.join('\n') });
     const back = proposals.find(p => p.kind === 'back');
@@ -345,7 +345,7 @@ export const runAside = (
         back ? Effect.as(Effect.logWarning(`aside reply of run ${run.id}`, e), []) : e
       )
     );
-    if (!back && !landed.some(a => a.ok))
+    if (!back && (problems.length > 0 || proposals.length > 0) && !landed.some(a => a.ok))
       return yield* new SessionStop({ reason: 'provider', detail: 'no aside reply landed' });
     yield* writeAppliedTrace(run.id, step.name, landed);
     const { eyes: _eyes, ...replied } = removeThreads(run);

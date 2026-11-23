@@ -139,6 +139,7 @@ Readers derive `engine`, `image`, `config` and `harnesses` labels from `versions
 | `spoken` | Command or tracker event and its source |
 | `inputs` | When input recording began |
 | `told` | Forwarded text; `by` names the sending run or `cli` |
+| `heard` | What one [event hook](plugins.md#event-hooks) made of one event: `plugin`, `does`, `why`, `usd` |
 
 After `inputs`, `spoken` records each tracker event once per revision, with its `id` and `bot` flag. <!-- code: src/run/hear.ts#writeHeardEvents src/run/hear.ts#getEventKey src/run/trigger.ts#tick -->
 
