@@ -1101,7 +1101,11 @@ export const githubTracker = (
                         ? gh<Made>(
                             'PATCH',
                             `${repo}/pulls/${open.number}`,
-                            { title: p.title, body: makeBodyWithStatus(body.body, getStatusHeader(open.body ?? '')) },
+                            {
+                              title: p.title,
+                              base: p.base,
+                              body: makeBodyWithStatus(body.body, getStatusHeader(open.body ?? '')),
+                            },
                             'pull_request'
                           )
                         : Effect.fail(e)

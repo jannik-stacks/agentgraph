@@ -10,6 +10,7 @@ import { stringify } from 'yaml';
 import {
   issueStatuses,
   labelPrefix,
+  findRequest,
   makeStudioRunUrl,
   formatRunMark,
   makeBodyWithStatus,
@@ -112,29 +113,8 @@ export const parseIssueSearch = (
   });
 
 export const makeCommentWithAgentRequest = (c: Comment): Comment => {
-  let fenced = false;
-  let offset = 0;
-  for (const line of c.body.split('\n')) {
-    const start = offset;
-    offset += line.length + 1;
-    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
-    if (fenced || /^\s*>/.test(line)) continue;
-    const found = /(?<![\w./-])[/@]agent(?![\w/-])/i.exec(line);
-    if (!found) continue;
-    const { command, text } = parseAgentRequest(c.body.slice(start + found.index + found[0].length));
-    const before = c.body.slice(0, start + found.index).trimEnd();
-    return {
-      ...c,
-      agentRequest: { ...(command && { command }), text: `${before} ${text}`.trim().replace(/^:+/, '') },
-    };
-  }
-  return c;
-};
-
-export const parseAgentRequest = (said: string): NonNullable<Comment['agentRequest']> => {
-  const command = /^:(\S+)/.exec(said)?.[1];
-  const text = said.slice(command === undefined ? 0 : command.length + 1).replace(/^[\s,:]+/, '');
-  return { ...(command && { command }), text: text.trim() };
+  const agentRequest = findRequest(c.body);
+  return agentRequest ? { ...c, agentRequest } : c;
 };
 
 export const formatAgentComment = (text: string) => (text.startsWith(':') ? `/agent${text}` : `/agent ${text}`);
@@ -596,7 +576,13 @@ export const folderTracker = (dir: string, as?: string, trust?: readonly string[
             for (const k of findIssueNumbers(dir)) {
               const pr = await read(k);
               if (pr?.pull?.branch !== p.branch || pr.state !== 'open') continue;
-              await write({ ...pr, title: p.title, body: makeBodyWithStatus(body, getStatusHeader(pr.body)) });
+              await write({
+                ...pr,
+                title: p.title,
+                body: makeBodyWithStatus(body, getStatusHeader(pr.body)),
+                pull: { ...pr.pull, base: p.base },
+              });
+              if (work && p.base !== pr.pull.base) await writeDiff(work, k, p.base, await tip(work, p.branch));
               return { proposal: p, ok: true, url: pr.url };
             }
             const head = work ? await tip(work, p.branch).catch(() => '') : '';

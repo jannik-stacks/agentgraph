@@ -1,16 +1,12 @@
 # agentgraph
 
-agentgraph runs agent workflows on repository issues. Markdown graphs define agents, checks and steps; runners execute commands. Start with the [starter example](examples/starter).
+agentgraph runs agent workflows on repository issues. A graph defines the agents, checks and steps. The engine runs those steps and applies the actions they propose. <!-- code: src/folder.ts#Graph src/run/drive.ts#runWorkflow src/run/settle.ts#writeProposals -->
 
 ## Quickstart
 
-See [installation requirements](docs/local.md) and [Models](docs/local.md#models) for setup and login.
-
-Inside your repository, install and copy the starter:
+[Install agentgraph, choose a model and copy the starter graph](docs/local.md). Review the graph in your repository, then try a small change. <!-- code: examples/starter/workflows/issue.md -->
 
 ```sh
-npm install -g @jannik-stacks/agi
-cp -R "$(npm root -g)/@jannik-stacks/agi/examples/starter" .agentgraph
 agi start "Fix padStart for len 0"
 agi show 1
 git diff main...agentgraph/1
@@ -19,13 +15,7 @@ agi merge 1
 git merge --ff-only agentgraph/1
 ```
 
-The starter implements, tests and reviews the change, then waits for you to merge it.
-
-Before starting, read and edit the copied graph for your repository. See [First run](docs/local.md#first-run).
-
-### From source
-
-See [Local](docs/local.md) for source installation and `agi studio` requirements.
+The starter tests and reviews the change, then waits for you to merge it. <!-- code: examples/starter/workflows/issue.md examples/starter/checks/tests.md -->
 
 ## Docs
 
@@ -35,11 +25,11 @@ See [Local](docs/local.md) for source installation and `agi studio` requirements
 
 [Starter](examples/starter), [sandbox](examples/sandbox), [agentgraph](examples/agentgraph), [Bench graph](examples/bench), [dashboard](examples/dashboard) and [Bench plugin](examples/plugins/bench).
 
-Tune is an experimental clone-only tool for proposing graph changes through Bench, with little test coverage and unstable commands and files. Submit a candidate with `node bin/tune.ts propose <tune dir> --from <graph dir> --why <text>`.
+See [Tune](docs/bench.md#tune) for experiments that propose graph changes.
 
 ## Development
 
-`npm run check` runs everything CI runs. See [Engine and code](docs/patterns.md) and [STYLE.md](STYLE.md).
+Use the [maintainer guides](docs/index.md#maintainers) to follow a run through the engine, find the files to change and test your work.
 
 ## License
 
