@@ -413,6 +413,39 @@ describe('stacks', () => {
     expect(saved(where)).toMatchObject({ step: 'merge', status: 'waiting', checkout: { base: 'main' } });
   });
 
+  it('keeps following a merged #8 until the pull request moves onto main', async () => {
+    const where = world();
+    const { head } = parent(where);
+    let rejected = true;
+    const tracker = Layer.effect(
+      Tracker,
+      Effect.map(Tracker, f => ({
+        ...f,
+        apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) => {
+          if (p.kind !== 'pull_request' || rejected || p.base !== 'main') return f.apply(n, p, work);
+          rejected = true;
+          return Effect.succeed({ proposal: p, ok: false, reason: 'HTTP 422' });
+        },
+      }))
+    ).pipe(Layer.provide(folderTracker(where.tracker)));
+    const layer = Layer.mergeAll(tracker, fileStore(where.data), hostSandbox(where.origin), replaySession([child()]));
+    const run = <A, E>(effect: Effect.Effect<A, E, Tracker | Store | Sandbox | Session>) =>
+      Effect.runPromise(effect.pipe(Effect.provide(layer)));
+    await run(runWorkflow(flow, run9(), merging));
+    rejected = false;
+    const main = land(where, head, clone => writeFileSync(join(clone, 'hello.txt'), 'hello\n'));
+    await run(tick(merging, 9));
+    expect(git(where.origin, 'rev-parse', 'agentgraph/9~1')).toBe(main);
+    expect(pr10(where).pull.base).toBe('agentgraph/7');
+    expect(saved(where).base).toMatchObject({ pull: 8, branch: 'agentgraph/7' });
+    await run(tick(merging, 9));
+    expect(pr10(where).pull.base).toBe('main');
+    expect(saved(where).base).toBeUndefined();
+    expect(
+      readTrace(where.data, 'run-9').filter(t => 'applied' in t && t.applied.proposal.kind === 'rebase')
+    ).toHaveLength(1);
+  });
+
   it('hands a branch that conflicts with main after #8 merged to the catch-up, which sends it back', async () => {
     const where = world();
     const { head } = parent(where);

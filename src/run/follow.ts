@@ -83,6 +83,7 @@ export const runFollow = (
       useRunLink(run)
     );
     yield* writeAppliedTrace(run.id, run.step, done);
+    if (landed && done.some(a => !a.ok)) return;
     const failed = done.find(a => !a.ok && a.proposal.kind === 'rebase');
     const refused = failed?.moved
       ? (yield* Stream.runCollect(store.read(run.id))).filter(
