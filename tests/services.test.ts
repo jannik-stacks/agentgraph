@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { ConfigProvider, Effect, Option, Result, Redacted } from 'effect';
+import { ConfigProvider, Effect, Result, Redacted } from 'effect';
 import { afterEach, expect, it, vi } from 'vitest';
 import { makeEnvProvider } from '../src/harnesses.ts';
 import { makeProductionLayers, makeTrackerSetup, pickTracker, readHostSettings, settings } from '../src/services.ts';
@@ -93,14 +93,14 @@ export default { name: 'mine', tracker: host => folder.tracker({ ...host, dir: h
 `,
   });
   const setup = (graph: string, name: string) =>
-    makeTrackerSetup({ repo: 'o/r', studio: '', app: Option.none(), graph, tracker: name, trackerDir: folderDir }).then(
-      s => s.origin.origin,
+    makeTrackerSetup({ repo: 'o/r', config: makeEnvProvider({}), graph, tracker: name, trackerDir: folderDir }).then(
+      s => s.origin.kind === 'folder' && s.origin.dir,
       (e: Error) => e.message
     );
   expect(await Promise.all([setup(before, 'mine'), setup(after, 'mine'), setup(before, other)])).toEqual([
-    join(folderDir, 'origin.git'),
+    folderDir,
     `tracker mine keeps its issues outside ${folderDir}; an instance tracker wraps the folder it is given`,
-    join(other, 'origin.git'),
+    other,
   ]);
 });
 

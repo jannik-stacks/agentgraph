@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
+import { Config } from 'effect';
 
-export const priceTable = fileURLToPath(new URL('../infra/local/prices.json.gz', import.meta.url));
+const priceTable = fileURLToPath(new URL('../infra/local/prices.json.gz', import.meta.url));
+export const readPricesPath = Config.String('AGENTGRAPH_PRICES').pipe(Config.withDefault(priceTable));
 const aliasFile = fileURLToPath(new URL('../infra/local/aliases.json', import.meta.url));
 
 type ListPrice = Partial<

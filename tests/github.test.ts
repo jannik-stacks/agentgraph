@@ -2,12 +2,12 @@ import { execFileSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, verify } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ConfigProvider, Deferred, Effect, Fiber, Logger, Option, Redacted, Result, Stream } from 'effect';
+import { ConfigProvider, Deferred, Effect, Fiber, Logger, Redacted, Result, Stream } from 'effect';
 import { TestClock } from 'effect/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { Tracker, currentRunLinkRef } from '../src/tracker.ts';
 import type { Proposal } from '../src/proposal.ts';
-import { githubTracker } from '../src/github.ts';
+import { github, githubTracker } from '../src/github.ts';
 import { makeProductionLayers, settings } from '../src/services.ts';
 import { tmp } from './kit.ts';
 import { type Checkout, TrackerError } from '../src/types.ts';
@@ -352,7 +352,13 @@ describe('githubTracker', () => {
         )
       );
       await Effect.runPromise(
-        Effect.provide(list, make({ ...configured, app: Option.some({ id: '43', key: app.key }) }))
+        Effect.provide(
+          list,
+          make({
+            ...configured,
+            config: ConfigProvider.fromEnv({ env: { AGENTGRAPH_APP_ID: '43', AGENTGRAPH_APP_KEY: privateKey } }),
+          })
+        )
       );
       await Effect.runPromise(Effect.provide(list, makeProductionLayers()(configured)));
       expect(second).toEqual(first);
@@ -1520,6 +1526,7 @@ describe('githubTracker', () => {
       const patch = f.calls.find(c => c.method === 'PATCH')!;
       expect(patch.body).toEqual({
         title: 'T',
+        base: 'agentgraph/11',
         body: '<!-- agentgraph status -->\n※ done\n<!-- end agentgraph status -->\n\nB',
       });
     });
@@ -1667,6 +1674,74 @@ describe('githubTracker', () => {
       const work: Checkout = { dir, base, git: env, news: join(dir, 'news.md') };
       return { dir, git, base, work };
     };
+    it('reads upstream issues, pushes through the fork installation and opens an upstream pull as the operator', async () => {
+      const { work, base } = repo();
+      const branch = 'agentgraph/7';
+      const f = fake({
+        'GET /user': { login: 'operator' },
+        'GET /repos/o/r/issues': [
+          issue(7),
+          issue(8, { pull_request: {}, user: { login: 'operator' }, author_association: 'NONE' }),
+        ],
+        'GET /repos/o/r/pulls': [pull(8, { head: { ref: branch, sha: base, repo: { full_name: 'acme/fork' } } })],
+        'GET /repos/acme/fork/installation': { id: 9 },
+        'POST /repos/acme/fork/git/refs': {},
+        'POST /repos/o/r/pulls': { number: 8, html_url: 'pull-url' },
+        'GET /repos/o/r/issues/comments': [
+          comment(1, 'writer', 'MEMBER', 'one'),
+          comment(2, 'operator', 'NONE', 'two'),
+        ],
+        'GET /repos/o/r/pulls/comments': [],
+        'GET /repos/o/r/issues/events': [],
+        'GET /repos/o/r/pulls/8/reviews': [],
+        'GET /repos/o/r/collaborators/writer/permission': () => ({ status: 403 }),
+      });
+      const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url, init) => f.fetch(String(url), init));
+      try {
+        const config = ConfigProvider.fromEnv({
+          env: {
+            AGENTGRAPH_APP_ID: app.id,
+            AGENTGRAPH_APP_KEY: privateKey,
+            AGENTGRAPH_FORK: 'acme/fork',
+            GH_TOKEN: 'upstream',
+          },
+        });
+        const setup = github.tracker!({ repo: app.repo, config });
+        const result = await Effect.runPromise(
+          Effect.gen(function* () {
+            const tracker = yield* Tracker;
+            return {
+              issues: yield* tracker.issues(),
+              push: yield* tracker.apply(7, { kind: 'push', branch, message: 'publish' }, work),
+              pull: yield* tracker.apply(7, { kind: 'pull_request', branch, base: 'main', title: 'Change', body: '' }),
+              events: yield* Stream.runCollect(tracker.since('')),
+            };
+          }).pipe(Effect.provide(setup.layer()))
+        );
+        expect(result.issues.map(i => [i.title, i.pull?.branch])).toEqual([
+          ['Issue 7', undefined],
+          ['Issue 8', branch],
+        ]);
+        expect(result.push).toMatchObject({ ok: true, url: `https://github.com/acme/fork/commit/${base}` });
+        expect(result.pull).toMatchObject({ ok: true, url: 'pull-url' });
+        expect(result.events.map(e => [e.actor, e.trusted])).toEqual([
+          ['writer', false],
+          ['operator', true],
+        ]);
+        const posts = f.calls.filter(c => c.method === 'POST' && c.path.startsWith('/repos/'));
+        expect(posts.map(c => [c.path, c.headers.get('authorization'), c.body])).toEqual([
+          ['/repos/acme/fork/git/refs', 'Bearer tok', { ref: `refs/heads/${branch}`, sha: base }],
+          [
+            '/repos/o/r/pulls',
+            'Bearer upstream',
+            { head: 'acme:agentgraph/7', head_repo: 'fork', base: 'main', title: 'Change', body: '' },
+          ],
+        ]);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     const blobSha = (base64: string) => {
       const content = Buffer.from(base64, 'base64');
       return createHash('sha1').update(`blob ${content.length}\0`).update(content).digest('hex');

@@ -28,7 +28,7 @@ const origin = () => {
 
 const remote = (url: string) => {
   const data = tmp('data');
-  return makeSandbox({ data, origin: origin() }).pipe(Layer.provide(boxRunner({ url, data })));
+  return makeSandbox({ data, origin: { kind: 'remote', url: origin() } }).pipe(Layer.provide(boxRunner({ url, data })));
 };
 
 const use = <A, E>(layer: Layer.Layer<Sandbox>, f: (s: Sandbox['Service']) => Effect.Effect<A, E, Scope.Scope>) =>

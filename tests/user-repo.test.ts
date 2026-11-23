@@ -134,7 +134,7 @@ const drive = (i: { tracker: string; data: string; base: string }, turns: Sessio
     Layer.mergeAll(
       folderTracker(s.tracker as string, undefined, s.trust),
       fileStore(s.data),
-      dockerSandbox({ data: s.data, origin: join(s.tracker as string, 'origin.git'), local: true, cache: '' }),
+      dockerSandbox({ data: s.data, origin: { kind: 'folder', dir: s.tracker }, cache: '' }),
       replaySession(turns)
     )
   );

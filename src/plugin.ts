@@ -6,18 +6,10 @@ import { extname, join, sep } from 'node:path';
 import { registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tool as aiTool, asSchema, jsonSchema, type JSONSchema7, type Tool, type ToolExecutionOptions } from 'ai';
-import {
-  Effect,
-  type Layer,
-  type Option,
-  type Redacted,
-  Result,
-  Schema,
-  SchemaIssue,
-  SchemaRepresentation,
-} from 'effect';
-import type { Issue, IssueStatus } from './event.ts';
-import type { InstanceHosts } from './types.ts';
+import { Effect, type Layer, type ConfigProvider, Result, Schema, SchemaIssue, SchemaRepresentation } from 'effect';
+import { type Event, Heard, type Issue, type IssueStatus } from './event.ts';
+import type { TokenCounts } from './prices.ts';
+import type { InstanceHosts, Run } from './types.ts';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -48,14 +40,14 @@ export type ToolContext<S = undefined> = {
   };
 } & Pick<ToolExecutionOptions<unknown>, 'abortSignal'>;
 
-export { issueStatuses } from './event.ts';
+export { findRequest, issueStatuses } from './event.ts';
+export type { Event, Heard, Issue };
 export type { InstanceHost, InstanceHosts } from './types.ts';
 export { sumHumanInteractions } from './results.ts';
 
 export type TrackerHost = {
   repo: string;
-  studio: string;
-  app: Option.Option<{ id: string; key: Redacted.Redacted }>;
+  config: ConfigProvider.ConfigProvider;
   dir?: string;
 };
 
@@ -88,6 +80,26 @@ export type HookContext<S = undefined> = Omit<ToolContext<S>, 'readFile' | 'abor
 };
 
 type StatusHook<S> = (change: StatusChange, context: HookContext<S>) => unknown;
+
+export const HeardResult = Schema.UndefinedOr(
+  Schema.Union([
+    Heard,
+    Schema.Struct({ does: Heard, why: Schema.optionalKey(Schema.String), usd: Schema.optionalKey(Schema.Finite) }),
+  ])
+);
+
+export type EventHook<S = undefined> = (
+  heard: {
+    event: Event;
+    issue: Pick<Issue, 'number' | 'labels' | 'author'>;
+    run: Pick<Run, 'id' | 'workflow' | 'step' | 'status'>;
+    does?: Heard;
+  },
+  context: HookContext<S> & {
+    readonly signal: AbortSignal;
+    readonly priceUsd: (model: string, tokens: Partial<TokenCounts>) => number | undefined;
+  }
+) => typeof HeardResult.Type | Promise<typeof HeardResult.Type>;
 
 type Node = Record<string, unknown>;
 const map = (node: unknown, f: (node: Node) => unknown): unknown =>
@@ -161,7 +173,7 @@ export const makePlugin = <
       watch?: (settings: S, hosts: H) => readonly string[];
     };
     tools?: Record<string, Tool<Parameters<NonNullable<Tool['execute']>>[0], unknown, ToolContext<S>>>;
-    on?: { status?: StatusHook<S> };
+    on?: { status?: StatusHook<S>; event?: EventHook<S> };
   } & ([S] extends [undefined]
       ? { settingsSchema?: Schema.Codec<S, unknown> }
       : { settingsSchema: Schema.Codec<S, unknown> })
@@ -194,6 +206,7 @@ const PluginFile = Schema.Struct({
   on: Schema.optional(
     Schema.Struct({
       status: Schema.optional(Schema.declare((value): value is StatusHook<unknown> => typeof value === 'function')),
+      event: Schema.optional(Schema.declare((value): value is EventHook<unknown> => typeof value === 'function')),
     })
   ),
   tools: Schema.Record(
@@ -226,7 +239,7 @@ export const readPlugins = async (
 ) => {
   const plugins = new Map<string, string>();
   const tools: Record<string, { tool: Tool; settings: unknown; plugin: string }> = {};
-  const hooks: { plugin: string; settings: unknown; status: StatusHook<unknown> }[] = [];
+  const hooks: ({ plugin: string; settings: unknown } & NonNullable<typeof PluginFile.Type.on>)[] = [];
   const trackers: Record<string, NonNullable<typeof PluginFile.Type.tracker>> = {};
   const runners: Record<string, (host: RunnerHost) => Layer.Layer<never, unknown>> = {};
   const auths: Record<string, (host: AuthHost) => ReturnType<AuthMember<unknown>>> = {};
@@ -278,14 +291,14 @@ export const readPlugins = async (
       decoded = result.success;
     }
     const names = Object.keys(plugin.tools);
-    if (!names.length && !plugin.on?.status && !members.some(member => plugin[member]))
+    if (!names.length && !plugin.on?.status && !plugin.on?.event && !members.some(member => plugin[member]))
       throw new Error(`${file}: plugin has none of tools, hooks, ${members.join(', ')}`);
     if (plugin.tracker) trackers[plugin.name] = plugin.tracker;
     const { runner } = plugin;
     if (runner) runners[plugin.name] = host => runner(host, decoded);
     const { auth } = plugin;
     if (auth) auths[plugin.name] = host => auth(host, decoded);
-    if (plugin.on?.status) hooks.push({ plugin: plugin.name, settings: decoded, status: plugin.on.status });
+    if (plugin.on) hooks.push({ plugin: plugin.name, settings: decoded, ...plugin.on });
     if (plugin.studio) {
       const { title, dataSchema, page, read, watch } = plugin.studio;
       const actual = await realpath(fileURLToPath(page));
@@ -321,5 +334,9 @@ export const readPlugins = async (
   for (const name of Object.keys(settings)) {
     if (!plugins.has(name)) throw new Error(`plugins.${name}: unknown plugin`);
   }
+  const order = Object.keys(settings);
+  const rank = (hook: (typeof hooks)[number]) =>
+    order.includes(hook.plugin) ? order.indexOf(hook.plugin) : order.length;
+  hooks.sort((a, b) => rank(a) - rank(b));
   return { tools, pages, hooks, trackers, runners, auths, names: [...plugins.keys()] };
 };

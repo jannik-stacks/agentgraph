@@ -22,7 +22,7 @@ import { readOrUndefined } from './read.ts';
 import { none, password, token } from './auths.ts';
 import { box, local } from './runners.ts';
 import { Runner, SandboxError } from './sandbox.ts';
-import { priceTable } from './prices.ts';
+import { readPricesPath } from './prices.ts';
 import { checkLogs, fileStore } from './store.ts';
 import type { Services } from './run/execute.ts';
 
@@ -43,7 +43,7 @@ export type Settings = {
   trust: string[] | undefined;
   tracker: string;
   trackerDir: string;
-  app: TrackerHost['app'];
+  config: TrackerHost['config'];
 };
 
 const proxyUrl = Config.String('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://gateway:4000/v1'));
@@ -117,17 +117,18 @@ export const settings = Config.all({
     keys: Config.Redacted('AGENTGRAPH_PROXY_KEYS').pipe(Config.withDefault(Redacted.make(''))),
     models: Config.String('AGENTGRAPH_MODELS').pipe(Config.withDefault('')),
   }),
-  prices: Config.String('AGENTGRAPH_PRICES').pipe(Config.withDefault(priceTable)),
+  prices: readPricesPath,
   cache: Config.String('AGENTGRAPH_CACHE_VOLUME').pipe(Config.withDefault('agentgraph-cache')),
   checkLogs: Config.Literals(checkLogs, 'AGENTGRAPH_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
   studio: Config.String('AGENTGRAPH_STUDIO_URL').pipe(Config.withDefault('')),
   trust: readOverrides.pipe(Config.map(overrides => overrides.trust)),
-  app: Config.option(
-    Config.all({ id: Config.String('AGENTGRAPH_APP_ID'), key: Config.Redacted('AGENTGRAPH_APP_KEY') })
-  ),
   tracker: readTrackerName,
   trackerDir: Config.String('AGENTGRAPH_TRACKER_DIR').pipe(Config.withDefault('')),
-}).pipe(Effect.flatMap(s => Effect.map(passed, (p): Settings => ({ ...s, passed: p }))));
+}).pipe(
+  Effect.flatMap(s =>
+    Effect.map(Effect.all({ passed, config: ConfigProvider.ConfigProvider }), (host): Settings => ({ ...s, ...host }))
+  )
+);
 
 const builtins = [github, folder, local, box, none, token, password];
 
@@ -239,14 +240,12 @@ export const pickTracker = async (
   return { tracker: trackers[named ? name : 'folder'] as (host: TrackerHost) => TrackerSetup, ...(dir && { dir }) };
 };
 
-export const makeTrackerSetup = async (
-  s: Pick<Settings, 'repo' | 'studio' | 'app' | 'graph' | 'tracker' | 'trackerDir'>
-) => {
+export const makeTrackerSetup = async (s: Pick<Settings, 'repo' | 'config' | 'graph' | 'tracker' | 'trackerDir'>) => {
   const picked = await pickTracker(s.tracker, findHostGraph(s));
   if ('problem' in picked) throw new Error(picked.problem);
   const dir = picked.dir ?? s.trackerDir;
-  const setup = picked.tracker({ ...Struct.pick(s, ['repo', 'studio', 'app']), ...(dir && { dir }) });
-  if (setup.origin.local && dir && setup.origin.origin !== join(dir, 'origin.git'))
+  const setup = picked.tracker({ ...Struct.pick(s, ['repo', 'config']), ...(dir && { dir }) });
+  if (setup.origin.kind === 'folder' && dir && setup.origin.dir !== dir)
     throw new Error(
       `tracker ${s.tracker} keeps its issues outside ${s.trackerDir}; an instance tracker wraps the folder it is given`
     );
@@ -260,19 +259,14 @@ const findLocalModelHosts = (url: string) =>
 
 export const makeProductionLayers = (setup?: TrackerSetup) => {
   let previous: string | undefined;
+  let config: TrackerHost['config'] | undefined;
   let place: ReturnType<typeof makeTrackerSetup>;
   let chosen: string | undefined;
   let picked: ReturnType<typeof pickRunner>;
   return (s: Settings): Layer.Layer<Services> => {
-    const key = JSON.stringify([
-      s.repo,
-      s.studio,
-      s.graph,
-      s.tracker,
-      s.trackerDir,
-      Option.getOrUndefined(Option.map(s.app, app => [app.id, Redacted.value(app.key)])),
-    ]);
-    if (key !== previous) {
+    const key = JSON.stringify([s.repo, s.graph, s.tracker, s.trackerDir]);
+    if (key !== previous || config !== s.config) {
+      config = s.config;
       place = setup ? Promise.resolve(setup) : makeTrackerSetup(s);
       previous = key;
     }
@@ -287,7 +281,7 @@ export const makeProductionLayers = (setup?: TrackerSetup) => {
         const { layer: tracker, origin } = yield* Effect.promise(() => current);
         const found = yield* Effect.promise(() => runner);
         if ('problem' in found) return yield* Effect.die(new Error(found.problem));
-        const sandbox = makeSandbox({ data: s.data, ...origin }).pipe(
+        const sandbox = makeSandbox({ data: s.data, origin }).pipe(
           Layer.provide(Layer.orDie(found.runner(makeRunnerHost(s))))
         );
         const config = yield* readHarnessSettings.pipe(

@@ -29,7 +29,7 @@ const Limits = Schema.Struct({
   minutes: Positive.pipe(Schema.withDecodingDefaultType(Effect.succeed(30))),
   usdPerRun: Positive.pipe(Schema.withDecodingDefaultType(Effect.succeed(10))),
   parallel: Count.pipe(Schema.withDecodingDefaultType(Effect.succeed(2))),
-  sessions: Count.pipe(Schema.withDecodingDefaultType(Effect.succeed(4))),
+  sessions: Count.pipe(Schema.withDecodingDefaultType(Effect.succeed(2))),
   max: Schema.optionalKey(
     Schema.Struct({ minutes: Schema.optionalKey(Positive), usdPerRun: Schema.optionalKey(Positive) }).pipe(
       Schema.encodeKeys({ usdPerRun: 'usd-per-run' })

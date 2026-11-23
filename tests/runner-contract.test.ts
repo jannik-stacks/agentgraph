@@ -54,13 +54,16 @@ const runners: [string, boolean, (data: string, origin: string) => Layer.Layer<S
   [
     'box',
     false,
-    (data, origin) => makeSandbox({ data, origin }).pipe(Layer.provide(boxRunner({ url: server.url, data }))),
+    (data, origin) =>
+      makeSandbox({ data, origin: { kind: 'remote', url: origin } }).pipe(
+        Layer.provide(boxRunner({ url: server.url, data }))
+      ),
   ],
   [
     'modal',
     false,
     (data, origin) =>
-      makeSandbox({ data, origin }).pipe(
+      makeSandbox({ data, origin: { kind: 'remote', url: origin } }).pipe(
         Layer.provide(
           Layer.orDie(makeModalRunner(modal.client, { image: 'unused' }, { data }, { urls: [], direct: [] }))
         )

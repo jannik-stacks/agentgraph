@@ -87,7 +87,7 @@ const measureChecks = async (sessions: number, judged = false) => {
       ],
       (checks, index) => {
         const run = `run-${index}`;
-        const small = { ...graph, repo: `repo-${index}`, limits: { ...graph.limits, sessions } };
+        const small = { ...graph, repo: `repo-${index}`, limits: { ...graph.limits, sessions, parallel: sessions } };
         return runStepChecks(
           { name: 'implement', does: { agent: 'implementor' }, tries: 1, checks },
           {

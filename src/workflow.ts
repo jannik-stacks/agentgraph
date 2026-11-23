@@ -1,7 +1,17 @@
 import { basename } from 'node:path';
 import { Schema, SchemaIssue } from 'effect';
 import { parse } from 'yaml';
-import { Count, labelPrefix, limitLabels, type Event, type Issue } from './event.ts';
+import {
+  Count,
+  type Heard,
+  HeardKinds,
+  heardKinds,
+  formatLiteralPattern,
+  labelPrefix,
+  limitLabels,
+  type Event,
+  type Issue,
+} from './event.ts';
 import { Kind } from './proposal.ts';
 import { CommandLimits, formatReason, type Outcome, type Run, type RunRecord } from './types.ts';
 
@@ -15,7 +25,8 @@ export type Workflow = Doc<{
       'issues' | 'issue_comment' | 'pull_request' | 'dispatch' | 'feedback' | 'conflict',
       { label?: string; column?: string; project?: string; branches?: string[] }
     > & { feedback: { restarts?: boolean } }
-  >;
+  > &
+    typeof HeardKinds.Type;
   branch?: string;
   base?: string;
   concurrency: 'steer' | 'queue' | 'cancel';
@@ -81,6 +92,7 @@ const Front = Schema.Struct({
       dispatch: Schema.optionalKey(Schema.Null),
       feedback: Schema.optionalKey(Schema.NullOr(Schema.Struct({ restarts: Schema.optionalKey(Schema.Boolean) }))),
       conflict: Schema.optionalKey(Schema.Null),
+      ...HeardKinds.fields,
     }),
   ]),
   branch: Schema.optionalKey(Schema.String),
@@ -438,13 +450,7 @@ export const isTemplateBranch = (template: string, branch: string, issue?: numbe
   new RegExp(
     `^${template
       .split(/(\{[^}]*\})/)
-      .map(p =>
-        p === '{issue}' && issue !== undefined
-          ? issue
-          : /^\{.*\}$/.test(p)
-            ? '.+'
-            : p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      )
+      .map(p => (p === '{issue}' && issue !== undefined ? issue : /^\{.*\}$/.test(p) ? '.+' : formatLiteralPattern(p)))
       .join('')}(-\\d+)?$`
   ).test(branch);
 
@@ -514,6 +520,23 @@ export function pickCommandTarget(
   return why ? { why } : { verb, step, text: said.text, run, workflow };
 }
 
+export const unmarkedNote =
+  'This comment does not say /agent, so it may be meant for someone else. When it is a note to another person, an FYI or thanks, propose nothing and change nothing.';
+
+export function getHeard(w: Workflow, run: Run, m: Event, hooked?: Heard): Heard | undefined {
+  const step = w.steps.find(s => s.name === run.step);
+  const human = run.status === 'waiting' && step !== undefined && isHumanWaitStep(step);
+  const usable = (does?: Heard) => ((does === 'pass' || does === 'back') && !human ? undefined : does);
+  const kind = m.bot ? undefined : heardKinds.find(k => k === m.kind);
+  const usual =
+    m.kind === 'merged' || m.kind === 'approved' || (m.kind === 'label' && m.label === 'approved')
+      ? 'pass'
+      : m.kind === 'changes_requested'
+        ? 'back'
+        : getAgentRequest(m) && 'answer';
+  return usable(hooked) ?? usable(kind && w.on[kind]) ?? usable(usual);
+}
+
 /** @internal */
 export const cancelled = 'Cancelled. Say /agent and how to go on from here, or /agent:stop to end the run.';
 
@@ -522,7 +545,8 @@ export function getEventOutcome(
   run: Run,
   m: Event,
   lined: Event[] = [],
-  target?: ReturnType<typeof pickCommandTarget>
+  target?: ReturnType<typeof pickCommandTarget>,
+  hooked?: Heard
 ): Outcome | undefined {
   if (!m.trusted || m.issue !== run.issue) return undefined;
   const label = w.on.issues?.label;
@@ -539,28 +563,25 @@ export function getEventOutcome(
     return { kind: 'answer', text: '' };
   if (m.kind === 'closed' && !isRunDone(run)) return { kind: 'stop', why: 'closed' };
   const said = getAgentRequest(m);
-  const body = m.comment?.body.trim() ?? '';
   const command = target && !('why' in target) && target.run?.id === run.id ? target : undefined;
   if (said?.command !== undefined && !command) return undefined;
   if (command?.verb === 'stop' && !isRunDone(run)) return { kind: 'stop', why: command.text || 'a human said stop' };
   if (command?.verb === 'restart' && !isRunDone(run))
     return { kind: 'stop', why: 'a human restarted it', restarted: true };
   if (command?.verb === 'cancel') return run.status === 'running' ? { kind: 'ask', question: cancelled } : undefined;
-  const step = w.steps.find(s => s.name === run.step);
-  if (waiting && step && isHumanWaitStep(step)) {
-    if (m.kind === 'merged' || m.kind === 'approved' || (m.kind === 'label' && m.label === 'approved'))
-      return { kind: 'pass' };
-    if (m.kind === 'changes_requested') {
-      const notes = lined.flatMap(l =>
-        l.trusted && l.kind === 'comment' && l.comment?.path && l.at <= m.at
-          ? `${l.comment.path}${l.comment.line ? `:${l.comment.line}` : ''}, id ${l.comment.under ?? l.comment.id}: ${l.comment.agentRequest?.text ?? l.comment.body}`
-          : []
-      );
-      return { kind: 'back', why: [body || 'changes requested', ...notes].join('\n') };
-    }
-  }
-  if (said !== undefined && !isRunDone(run)) return { kind: 'answer', text: command?.text ?? said.text };
-  return undefined;
+  const does = getHeard(w, run, m, hooked);
+  if (does === undefined || does === 'none' || isRunDone(run)) return undefined;
+  if (does === 'pass') return { kind: 'pass' };
+  const notes = lined.flatMap(l =>
+    m.kind === 'changes_requested' && l.trusted && l.kind === 'comment' && l.comment?.path && l.at <= m.at
+      ? `${l.comment.path}${l.comment.line ? `:${l.comment.line}` : ''}, id ${l.comment.under ?? l.comment.id}: ${l.comment.agentRequest?.text ?? l.comment.body}`
+      : []
+  );
+  const why = said
+    ? (command?.text ?? said.text)
+    : [m.comment?.body.trim() || m.kind.replace('_', ' '), ...notes].join('\n');
+  if (does !== 'answer') return { kind: does, why };
+  return { kind: 'answer', text: m.kind === 'comment' && !said ? `${why}\n\n${unmarkedNote}` : why };
 }
 
 export const fold = (outcomes: Outcome[]): Outcome | undefined => {

@@ -51,7 +51,7 @@ it('reads runs, labels and tracker issues of its one instance and acts through t
     { data },
     {
       layer: folderTracker(tracker, 'morgan', ['morgan']),
-      origin: { origin: join(tracker, 'origin.git'), local: true },
+      origin: { kind: 'folder', dir: tracker },
     }
   );
   const read = await callLocal(host, client =>
@@ -101,7 +101,7 @@ it('posts nothing on a tracker that is not local, as agi say', async () => {
   const { data, tracker, issue } = await makeInstance();
   const host = makeInstanceHost(
     { data },
-    { layer: folderTracker(tracker), origin: { origin: 'https://github.com/o/r' } }
+    { layer: folderTracker(tracker), origin: { kind: 'remote', url: 'https://github.com/o/r' } }
   );
   await expect(callLocal(host, client => client.say({ issue, text: 'hi' }))).rejects.toThrow(
     'this host does not post there'
