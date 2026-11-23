@@ -214,9 +214,7 @@ export const readHeard = (graph: Graph, w: Workflow, run: Run, events: readonly 
     if (!hooks) return { hooked, held: asked[0]!.at };
     if (hooks.length === 0) return { hooked };
     const store = yield* Store;
-    const known = new Map(
-      (yield* Stream.runCollect(store.read(run.id))).flatMap(t => ('heard' in t ? [[t.heard.event, t.heard]] : []))
-    );
+    const lines = (yield* Stream.runCollect(store.read(run.id))).flatMap(t => ('heard' in t ? [t.heard] : []));
     const pricesPath = yield* readPricesPath.pipe(Effect.orDie);
     let prices: Prices | undefined;
     const priceUsd: Parameters<EventHook>[1]['priceUsd'] = (model, tokens) =>
@@ -229,14 +227,13 @@ export const readHeard = (graph: Graph, w: Workflow, run: Run, events: readonly 
       });
     let issue: Issue | undefined;
     for (const m of asked) {
-      const line =
-        known.get(m.id) ??
-        (yield* Effect.gen(function* () {
-          const { number, labels, author } = (issue ??= yield* (yield* Tracker).issue(run.issue));
-          let last: { plugin: string; does: Heard; why?: string } | undefined;
-          let usd: number | undefined;
-          for (const hook of hooks) {
-            const does = getHeard(w, run, m, last?.does);
+      let last: Heard | undefined;
+      for (const hook of hooks) {
+        const line =
+          lines.find(l => l.event === m.id && l.plugin === hook.plugin) ??
+          (yield* Effect.gen(function* () {
+            const { number, labels, author } = (issue ??= yield* (yield* Tracker).issue(run.issue));
+            const does = getHeard(w, run, m, last);
             const said = yield* Effect.tryPromise(async signal =>
               hook.event!(
                 {
@@ -249,19 +246,26 @@ export const readHeard = (graph: Graph, w: Workflow, run: Run, events: readonly 
               )
             ).pipe(
               Effect.timeout('30 seconds'),
-              Effect.flatMap(Schema.decodeUnknownEffect(HeardResult, { onExcessProperty: 'error' })),
-              Effect.mapError(cause => ({ plugin: hook.plugin, cause }))
+              Effect.flatMap(Schema.decodeUnknownEffect(HeardResult, { onExcessProperty: 'error' }))
             );
-            const { usd: spent = undefined, ...result } = typeof said === 'string' ? { does: said } : (said ?? {});
-            if ('does' in result) last = { ...result, plugin: hook.plugin };
-            if (spent !== undefined) usd = (usd ?? 0) + spent;
-          }
-          const line = { event: m.id, ...last, ...(usd !== undefined && { usd }) };
-          yield* store.trace(run.id, { at: new Date().toISOString(), step: run.step, heard: line });
-          return line;
-        }).pipe(Effect.catch(e => Effect.as(Effect.logWarning(`event hooks for run ${run.id}`, e), undefined))));
-      if (!line) return { hooked, held: m.at };
-      if (line.does) hooked.set(m.id, line.does);
+            const { usd = undefined, ...result } = typeof said === 'string' ? { does: said } : (said ?? {});
+            const line = {
+              event: m.id,
+              plugin: hook.plugin,
+              ...('does' in result && getHeard(w, run, m, result.does) === result.does && result),
+              ...(usd !== undefined && { usd }),
+            };
+            yield* store.trace(run.id, { at: new Date().toISOString(), step: run.step, heard: line });
+            return line;
+          }).pipe(
+            Effect.catch(cause =>
+              Effect.as(Effect.logWarning(`event hook ${hook.plugin} for run ${run.id}`, cause), undefined)
+            )
+          ));
+        if (!line) return { hooked, held: m.at };
+        last = line.does ?? last;
+      }
+      if (last) hooked.set(m.id, last);
     }
     return { hooked };
   });

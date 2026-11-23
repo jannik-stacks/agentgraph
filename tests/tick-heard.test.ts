@@ -216,6 +216,28 @@ describe('tick with an on.event hook', () => {
     expect((await seen(run))[0]).toBe('stopped');
   });
 
+  it('keeps the charge of a hook that ran before a failed one, and asks only the failed one again', async () => {
+    const { graph, calls, log } = hooked({
+      paid: "return { does: 'none', usd: 0.25 };",
+      flaky: "if (!existsSync(settings.log + '.up')) throw new Error('down'); return { does: 'answer', usd: 0.5 };",
+    });
+    const where = open();
+    say(where, comment(8, 'morgan', true, 'rename hello', at(5)));
+    const { specs, run } = services(where, [[start('f'), reply()]]);
+    await run(Effect.andThen(waiting(where), tick(graph, 7)));
+    expect([specs.length, await seen(run)]).toEqual([0, ['waiting', undefined]]);
+    expect(heardLines(where)).toEqual([{ event: at(5), plugin: 'paid', does: 'none', usd: 0.25 }]);
+    expect(await run(readRunSpend('run-7'))).toEqual({ usd: 0.25 });
+    writeFileSync(`${log}.up`, '');
+    await run(tick(graph, 7));
+    expect(calls().map(c => c[3])).toEqual([null, 'none', 'none']);
+    expect(heardLines(where)).toEqual([
+      { event: at(5), plugin: 'paid', does: 'none', usd: 0.25 },
+      { event: at(5), plugin: 'flaky', does: 'answer', usd: 0.5 },
+    ]);
+    expect(specs).toHaveLength(1);
+  });
+
   it('lets the last hook in settings order win, and keeps what the map does where pass does not apply', async () => {
     const { graph, calls } = hooked({ b: "return 'answer';", a: "return 'pass';" });
     const where = world();
@@ -232,8 +254,11 @@ describe('tick with an on.event hook', () => {
     const { run } = services(where, []);
     const { hooked: said } = await run(readHeard(graph, issue, asked, [m]));
     expect(calls().map(c => c[3])).toEqual([null, 'answer']);
-    expect([...said]).toEqual([[m.id, 'pass']]);
-    expect(heardLines(where)).toEqual([{ event: m.id, plugin: 'a', does: 'pass' }]);
+    expect([...said]).toEqual([[m.id, 'answer']]);
+    expect(heardLines(where)).toEqual([
+      { event: m.id, plugin: 'b', does: 'answer' },
+      { event: m.id, plugin: 'a' },
+    ]);
   });
 
   it('prices a hook call with the instance price table', async () => {

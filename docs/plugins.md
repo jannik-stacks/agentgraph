@@ -63,7 +63,7 @@ The hook gets the event, the issue's `number`, `labels` and `author`, the run's 
 
 The context adds an abort `signal` and `priceUsd(model, tokens)`, which prices a model call with the instance's list prices (`AGENTGRAPH_PRICES`, the bundled table by default). `findRequest(body, marks)` finds a mark outside quotes and code. Each hook has 30 seconds. A throw, a timeout or an unknown result leaves the event untaken: the run keeps waiting and the next pass asks again. Later events of that run wait behind it; a stop still applies. <!-- code: src/run/hear.ts#readHeard src/event.ts#findRequest src/prices.ts#getListPriceUsd -->
 
-The trace keeps one [`heard`](runs.md#the-trace) line per event, so each hook is asked once per event. Its `usd` counts toward `usd-per-run`. See the [mention example](../tests/fixtures/triggers/plugins/mention.ts). <!-- code: src/types.ts#Trace src/trace.ts#getRunSpend tests/fixtures/triggers/plugins/mention.ts#settings -->
+The trace keeps one [`heard`](runs.md#the-trace) line per hook and event, so a pass after a failure asks only the hooks that have no line yet. Its `usd` counts toward `usd-per-run`. See the [mention example](../tests/fixtures/triggers/plugins/mention.ts). <!-- code: src/types.ts#Trace src/trace.ts#getRunSpend tests/fixtures/triggers/plugins/mention.ts#settings -->
 
 ## Trackers
 
