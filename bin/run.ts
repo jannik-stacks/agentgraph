@@ -884,7 +884,7 @@ async function serveLocked(instance: Instance, tag: string, shared: ReturnType<t
   );
   scope = connection.scope;
   const drives = values.once ? undefined : startLoopDrives();
-  const slots = { sessions: makeSlots(), parallel: makeSlots(), ...(shared && { host: shared }) };
+  const slots = { sessions: makeSlots(), parallel: shared?.narrow() ?? makeSlots() };
   const done = new AbortController();
   const halted = AbortSignal.any([stopping.signal, done.signal]);
   const selected = formatInstanceFlags(i.checkout, root, basename(i.dir));

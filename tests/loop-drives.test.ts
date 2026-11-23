@@ -454,7 +454,7 @@ describe('loop drives', () => {
     }
   });
 
-  it('stops a run on a stop said while it waited for a session slot, once its session ends', async () => {
+  it('stops a queued run on a stop said while it waited for a permit, before any session', async () => {
     const loop = setup(1);
     try {
       await loop.pass();
@@ -467,8 +467,7 @@ describe('loop drives', () => {
       say(loop.where, comment(9, 'morgan', true, '/agent:stop', '2026-10-16T00:03:00.000Z'));
       loop.release();
       await vi.waitFor(() => expect(loop.drives.driving.size).toBe(0), { timeout: 20_000 });
-      await loop.pass();
-      expect(await loop.status(second!.id)).toBe('stopped');
+      expect([await loop.status(second!.id), loop.opened.length]).toEqual(['stopped', 1]);
     } finally {
       loop.release();
       await loop.drives.stop();
@@ -553,9 +552,7 @@ describe('loop drives', () => {
             ['a', 'b', 'c'],
             () => waitForSlot({ ...small, limits: { ...small.limits, parallel } }, 'parallel')(work(parallel === 1)),
             { concurrency: 'unbounded' }
-          ).pipe(
-            Effect.provideService(slotsRef, { sessions: makeSlots(), parallel: makeSlots(), ...(host && { host }) })
-          )
+          ).pipe(Effect.provideService(slotsRef, { sessions: makeSlots(), parallel: host?.narrow() ?? makeSlots() }))
         )
       )
     );
@@ -582,6 +579,21 @@ describe('loop drives', () => {
       )
     );
     expect(order).toEqual(['early', 'late', 'new', 'newer']);
+  });
+
+  it('gives a freed host slot to a later-stage command of an instance whose earlier one waited first', async () => {
+    const host = makeSlots();
+    const [busy, other] = [host.narrow(), host.narrow()];
+    const order: string[] = [];
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
+    const queue = (name: string, stage: number) => other({ stage, started: '' })(Effect.sync(() => order.push(name)));
+    setTimeout(release, 20);
+    await Effect.runPromise(
+      Effect.all([busy({ stage: 0, started: '' })(Effect.promise(() => held)), queue('early', 0), queue('late', 3)], {
+        concurrency: 'unbounded',
+      })
+    );
+    expect(order).toEqual(['late', 'early']);
   });
 
   it('ranks a session by the step its run is at and its start, and work outside a drive first', async () => {

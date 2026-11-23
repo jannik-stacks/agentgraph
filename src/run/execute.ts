@@ -61,28 +61,32 @@ type Ended = Pick<Extract<Trace, { session: unknown }>['session'], 'ended' | 'ex
 
 type SlotRank = { stage: number; started: string };
 
+type SlotCap = { size: number; held: number };
+
 export const makeSlots = (first = 1) => {
-  let size = first;
-  const waiting: { rank: SlotRank; entered: Deferred.Deferred<void> }[] = [];
-  let held = 0;
+  const waiting: { rank: SlotRank; caps: SlotCap[]; entered: Deferred.Deferred<void> }[] = [];
   const admit = () => {
-    while (held < size && waiting.length) {
-      held++;
-      Deferred.doneUnsafe(waiting.shift()!.entered, Exit.void);
+    for (const next of waiting.slice()) {
+      if (next.caps.some(c => c.held >= c.size)) continue;
+      for (const c of next.caps) c.held++;
+      waiting.splice(waiting.indexOf(next), 1);
+      Deferred.doneUnsafe(next.entered, Exit.void);
     }
   };
-  const leave = Effect.sync(() => {
-    held--;
-    admit();
-  });
-  return (rank: SlotRank, resized = size) =>
+  const open =
+    (caps: [SlotCap, ...SlotCap[]]) =>
+    (rank: SlotRank, resized = caps[0].size) =>
     <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       Effect.uninterruptibleMask(restore => {
-        const mine = { rank, entered: Deferred.makeUnsafe<void>() };
-        size = resized;
+        const mine = { rank, caps, entered: Deferred.makeUnsafe<void>() };
+        caps[0].size = resized;
         waiting.push(mine);
         waiting.sort((a, b) => b.rank.stage - a.rank.stage || a.rank.started.localeCompare(b.rank.started));
         admit();
+        const leave = Effect.sync(() => {
+          for (const c of caps) c.held--;
+          admit();
+        });
         return restore(Deferred.await(mine.entered)).pipe(
           Effect.onInterrupt(() =>
             waiting.includes(mine) ? Effect.sync(() => void waiting.splice(waiting.indexOf(mine), 1)) : leave
@@ -90,11 +94,13 @@ export const makeSlots = (first = 1) => {
           Effect.andThen(Effect.ensuring(restore(effect), leave))
         );
       });
+  const own = { size: first, held: 0 };
+  return Object.assign(open([own]), { narrow: (inner = 1) => open([{ size: inner, held: 0 }, own]) });
 };
 
-type Slots = ReturnType<typeof makeSlots>;
+type Slots = ReturnType<ReturnType<typeof makeSlots>['narrow']>;
 
-export const slotsRef = Context.Reference<{ sessions: Slots; parallel: Slots; host?: Slots }>('agentgraph/slots', {
+export const slotsRef = Context.Reference<{ sessions: Slots; parallel: Slots }>('agentgraph/slots', {
   defaultValue: () => ({ sessions: makeSlots(), parallel: makeSlots() }),
 });
 
@@ -108,9 +114,7 @@ export const waitForSlot =
     Effect.gen(function* () {
       const slots = yield* slotsRef;
       const rank = (yield* slotRankRef)();
-      if (!rank) return yield* effect;
-      const hosted = kind === 'parallel' && slots.host ? slots.host(rank)(effect) : effect;
-      return yield* slots[kind](rank, graph.limits[kind])(hosted);
+      return yield* rank ? slots[kind](rank, graph.limits[kind])(effect) : effect;
     });
 
 export const runSession = <A = never, R = never>(
@@ -140,11 +144,13 @@ const openSession = <A, R>(
   {
     item,
     until,
+    heard,
     aside,
     dropped,
   }: Partial<{
     item: string | undefined;
     until: Effect.Effect<A, never, R> | undefined;
+    heard: Effect.Effect<A | undefined, never, R>;
     aside: Extract<Trace, { prompt: unknown }>['aside'];
     dropped: string;
   }>,
@@ -217,41 +223,45 @@ const openSession = <A, R>(
           server => Effect.promise(() => server.close())
         )
       : undefined;
-    const talked = session
-      .open(server ? { ...spec, tools: spec.tools.filter(name => !custom.includes(name)), mcp: server } : spec)
-      .pipe(
-        Stream.runForEach(event => {
-          if (event.type === 'start') {
-            started = true;
-            Object.assign(seen, { id: event.session, home: event.home });
-          }
-          if (event.type === 'text') seen.text = event.text;
-          if (event.type === 'usage') seen.spend = sumSpend([seen.spend, event]);
-          if (event.type === 'tool' && spec.returns)
-            seen.result = getRecordedResult(spec.returns, event) ?? seen.result;
-          if (event.type === 'end') {
-            seen.final = event.final;
-            end = {
-              ended: event.exit === 0 ? event.ended : 'error',
-              exit: event.exit,
-              ...pickUsed(event),
-            };
-          }
-          return write({ at: new Date().toISOString(), step, event, key });
-        }),
-        Effect.scoped,
-        waitForSlot(graph, 'sessions'),
-        Effect.catchTag('SessionStop', e =>
-          droppable && !started && e.reason !== 'human' && e.reason !== 'login'
-            ? Effect.sync(() => {
-                seen.final = e.detail ?? e.reason;
-                end = { ended: e.reason };
-              })
-            : Effect.fail(e)
-        ),
-        Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void)),
-        Effect.as(undefined)
-      );
+    const opened = Stream.suspend(() =>
+      session.open(server ? { ...spec, tools: spec.tools.filter(name => !custom.includes(name)), mcp: server } : spec)
+    ).pipe(
+      Stream.runForEach(event => {
+        if (event.type === 'start') {
+          started = true;
+          Object.assign(seen, { id: event.session, home: event.home });
+        }
+        if (event.type === 'text') seen.text = event.text;
+        if (event.type === 'usage') seen.spend = sumSpend([seen.spend, event]);
+        if (event.type === 'tool' && spec.returns) seen.result = getRecordedResult(spec.returns, event) ?? seen.result;
+        if (event.type === 'end') {
+          seen.final = event.final;
+          end = {
+            ended: event.exit === 0 ? event.ended : 'error',
+            exit: event.exit,
+            ...pickUsed(event),
+          };
+        }
+        return write({ at: new Date().toISOString(), step, event, key });
+      }),
+      Effect.scoped,
+      Effect.as(undefined)
+    );
+    const talked = (
+      heard ? Effect.flatMap(heard, a => (a === undefined ? opened : Effect.succeed({ a }))) : opened
+    ).pipe(
+      waitForSlot(graph, 'sessions'),
+      Effect.catchTag('SessionStop', e =>
+        droppable && !started && e.reason !== 'human' && e.reason !== 'login'
+          ? Effect.sync(() => {
+              seen.final = e.detail ?? e.reason;
+              end = { ended: e.reason };
+              return undefined;
+            })
+          : Effect.fail(e)
+      ),
+      Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void))
+    );
     const cut = until
       ? yield* Effect.raceFirst(
           talked,
