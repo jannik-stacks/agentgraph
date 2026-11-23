@@ -36,6 +36,18 @@ gh auth refresh -s read:project
 
 [Board writes](plugins.md#status-hooks) need `project` scope instead. <!-- code: src/github.ts#readProjectToken -->
 
+## Work from a fork
+
+To work on a repository the App cannot be installed on, install it on your fork and set `AGENTGRAPH_FORK` beside `AGENTGRAPH_REPO`, both as `owner/name`:
+
+```sh
+AGENTGRAPH_REPO=acme/mono AGENTGRAPH_FORK=me/mono agi loop --tracker github
+```
+
+The engine reads issues, comments and pull requests in `AGENTGRAPH_REPO` with your user token, the one [project boards](#project-boards) use. It pushes `agentgraph/` branches to the fork as the App and opens each pull request upstream from the fork's branch. Checkouts fetch base branches from upstream and `agentgraph/` branches from the fork. Restart the loop after changing the fork. <!-- code: src/github.ts#github src/github.ts#githubTracker src/mirror.ts#makeSandbox -->
+
+Upstream gets pull requests and nothing else. Comments, questions, reactions and labels are not sent, and their trace line says so. Merges and new issues are refused. Your own pull requests and comments read as the agent's own text. [Trust](workflows.md#trust-and-scope) still needs write access upstream, and a person whose permission your token may not read stays untrusted. A stacked pull request needs its base branch upstream, so leave `stacks` off. <!-- code: src/github.ts#githubTracker -->
+
 ## Start the engine
 
 Configure a [named instance](local.md#named-instances-and-settings) with a checkout, graph and `tracker: github`. Put App and [model settings](sandbox.md#models) in its env file. <!-- code: src/instance.ts#readInstance src/instance.ts#ensureGraph -->

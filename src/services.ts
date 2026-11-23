@@ -44,6 +44,7 @@ export type Settings = {
   tracker: string;
   trackerDir: string;
   app: TrackerHost['app'];
+  config: TrackerHost['config'];
 };
 
 const proxyUrl = Config.String('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://gateway:4000/v1'));
@@ -127,7 +128,15 @@ export const settings = Config.all({
   ),
   tracker: readTrackerName,
   trackerDir: Config.String('AGENTGRAPH_TRACKER_DIR').pipe(Config.withDefault('')),
-}).pipe(Effect.flatMap(s => Effect.map(passed, (p): Settings => ({ ...s, passed: p }))));
+}).pipe(
+  Effect.flatMap(s =>
+    Effect.map(Effect.all([passed, ConfigProvider.ConfigProvider]), ([p, config]): Settings => ({
+      ...s,
+      passed: p,
+      config,
+    }))
+  )
+);
 
 const builtins = [github, folder, local, box, none, token, password];
 
@@ -240,12 +249,12 @@ export const pickTracker = async (
 };
 
 export const makeTrackerSetup = async (
-  s: Pick<Settings, 'repo' | 'studio' | 'app' | 'graph' | 'tracker' | 'trackerDir'>
+  s: Pick<Settings, 'repo' | 'studio' | 'app' | 'config' | 'graph' | 'tracker' | 'trackerDir'>
 ) => {
   const picked = await pickTracker(s.tracker, findHostGraph(s));
   if ('problem' in picked) throw new Error(picked.problem);
   const dir = picked.dir ?? s.trackerDir;
-  const setup = picked.tracker({ ...Struct.pick(s, ['repo', 'studio', 'app']), ...(dir && { dir }) });
+  const setup = picked.tracker({ ...Struct.pick(s, ['repo', 'studio', 'app', 'config']), ...(dir && { dir }) });
   if (setup.origin.local && dir && setup.origin.origin !== join(dir, 'origin.git'))
     throw new Error(
       `tracker ${s.tracker} keeps its issues outside ${s.trackerDir}; an instance tracker wraps the folder it is given`

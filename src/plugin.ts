@@ -7,6 +7,7 @@ import { registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tool as aiTool, asSchema, jsonSchema, type JSONSchema7, type Tool, type ToolExecutionOptions } from 'ai';
 import {
+  type ConfigProvider,
   Effect,
   type Layer,
   type Option,
@@ -58,6 +59,7 @@ export type TrackerHost = {
   repo: string;
   studio: string;
   app: Option.Option<{ id: string; key: Redacted.Redacted }>;
+  config: ConfigProvider.ConfigProvider;
   dir?: string;
 };
 

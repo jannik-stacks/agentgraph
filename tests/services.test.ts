@@ -93,7 +93,15 @@ export default { name: 'mine', tracker: host => folder.tracker({ ...host, dir: h
 `,
   });
   const setup = (graph: string, name: string) =>
-    makeTrackerSetup({ repo: 'o/r', studio: '', app: Option.none(), graph, tracker: name, trackerDir: folderDir }).then(
+    makeTrackerSetup({
+      repo: 'o/r',
+      studio: '',
+      app: Option.none(),
+      config: makeEnvProvider(),
+      graph,
+      tracker: name,
+      trackerDir: folderDir,
+    }).then(
       s => s.origin.origin,
       (e: Error) => e.message
     );

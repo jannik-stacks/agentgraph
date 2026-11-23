@@ -73,7 +73,6 @@ export class Tracker extends Context.Service<
       names?: Partial<Record<IssueStatus, string>>
     ) => Effect.Effect<void, TrackerError>;
     writeStatusHeader?: (number: number, header: string) => Effect.Effect<void, TrackerError>;
-    slug?: Effect.Effect<string, TrackerError>;
     writeField?: (
       ...args: Parameters<NonNullable<HookContext['tracker']['writeField']>>
     ) => Effect.Effect<void, TrackerError>;
@@ -92,7 +91,12 @@ export const makeStatusLabel = (
 
 export type TrackerSetup = {
   layer: (trust?: readonly string[], as?: string) => Layer.Layer<Tracker>;
-  origin: { origin: string; local?: boolean; token?: Effect.Effect<string, TrackerError> };
+  origin: {
+    origin: string;
+    local?: boolean;
+    token?: Effect.Effect<string, TrackerError>;
+    branches?: Pick<TrackerSetup['origin'], 'origin' | 'token'>;
+  };
 };
 
 export const parseIssueSearch = (
