@@ -59,11 +59,12 @@ export const runFollow = (
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch));
     const applied = work.head && (yield* tracker.apply(run.issue, { kind: 'rebase', branch, from, onto: head }, work));
     if (applied) yield* store.trace(run.id, { at: new Date().toISOString(), step: run.step, applied });
-    const failed = applied && !applied.ok ? applied : undefined;
+    const failed = applied && applied.status === 'refused' ? applied : undefined;
     const refused = failed?.moved
       ? (yield* Stream.runCollect(store.read(run.id))).filter(
           t =>
             'applied' in t &&
+            t.applied.status === 'refused' &&
             t.applied.moved &&
             t.applied.proposal.kind === 'rebase' &&
             t.applied.proposal.onto === head
@@ -152,7 +153,11 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
         ? { kind: 'push', branch, message: `Merge ${pull.base} into ${branch}`, onto, merge: true }
         : { kind: 'rebase', branch, from, onto };
       const tried = (yield* Stream.runCollect(store.read(run.id))).filter(
-        t => 'applied' in t && !t.applied.ok && 'onto' in t.applied.proposal && t.applied.proposal.onto === onto
+        t =>
+          'applied' in t &&
+          t.applied.status === 'refused' &&
+          'onto' in t.applied.proposal &&
+          t.applied.proposal.onto === onto
       ).length;
       const conflict =
         step.conflict ?? Object.values(graph.workflows).find(w => w.on.conflict)?.name ?? (to ? 'back' : 'ask');
@@ -163,10 +168,10 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
       if (merge && files.length === 0) yield* hostGit(work.git, ['read-tree', '-u', '--reset', tree]);
       const applied: Applied =
         files.length > 0
-          ? { proposal, ok: false, reason: `conflicts in ${files.join(', ')}` }
+          ? { proposal, status: 'refused', reason: `conflicts in ${files.join(', ')}` }
           : yield* tracker.apply(run.issue, proposal, work);
       yield* store.trace(run.id, { at: new Date().toISOString(), step: run.step, applied });
-      if (!applied.ok && tried === 0 && handled) {
+      if (applied.status === 'refused' && tried === 0 && handled) {
         const why = [
           [
             `${branch} no longer ${verb} ${pull.base} at ${onto.slice(0, 7)}: ${applied.reason}.`,
@@ -181,7 +186,7 @@ export const runCatchUp = (w: Workflow, run: Run, graph: Graph, pull: NonNullabl
         if (yield* startProposedRun(graph, run, proposed, { ...seed, ...(run.checkout && { checkout: run.checkout }) }))
           return { run: current };
       }
-      if (!applied.ok) {
+      if (applied.status === 'refused') {
         const body = `${branch} no longer ${verb} ${pull.base}: ${applied.reason}. Update it by hand.`;
         const reason = waits ? body : [current.reason, body].filter(Boolean).join('\n\n');
         return { run: yield* writeStatus(w, { ...current, reason }, graph) };
@@ -311,11 +316,11 @@ export const runAside = (
         back ? Effect.as(Effect.logWarning(`aside reply of run ${run.id}`, e), []) : e
       )
     );
-    if (!back && !landed.some(a => a.ok))
+    if (!back && !landed.some(a => a.status !== 'refused'))
       return yield* new SessionStop({ reason: 'provider', detail: 'no aside reply landed' });
     yield* writeAppliedTrace(run.id, step.name, landed);
     const { eyes: _eyes, ...replied } = removeThreads(run);
-    const answered = landed.some(a => a.ok) ? replied : run;
+    const answered = landed.some(a => a.status !== 'refused') ? replied : run;
     if (!back || r.id === undefined) return { run: answered };
     const sessions = {
       ...run.sessions,

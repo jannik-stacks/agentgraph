@@ -110,7 +110,7 @@ describe('transition, running', () => {
     const next = transition(w, at('implement'), {
       kind: 'failed',
       checks: [],
-      proposals: [{ proposal: { kind: 'comment', body: 'x' }, ok: false, reason: 'forbidden' }],
+      proposals: [{ proposal: { kind: 'comment', body: 'x' }, status: 'refused', reason: 'forbidden' }],
       problems: [],
     });
     expect(next.feedback).toBe('comment failed: forbidden');

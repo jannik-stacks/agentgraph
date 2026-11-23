@@ -36,7 +36,7 @@ export const behind = (where: ReturnType<typeof world>) =>
   git(where.origin, 'rev-list', '--count', 'agentgraph/7..main');
 export const rebases = (where: ReturnType<typeof world>) =>
   readTrace(where.data, 'run-7').flatMap(t =>
-    'applied' in t && t.applied.proposal.kind === 'rebase' ? [t.applied.ok] : []
+    'applied' in t && t.applied.proposal.kind === 'rebase' ? [t.applied.status === 'applied'] : []
   );
 export const merging = (fields: Partial<Step>, base = graph) => ({
   ...base,

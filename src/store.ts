@@ -339,6 +339,7 @@ export const locate = (input: unknown, store: Pick<Store['Service'], 'list' | 'r
       for (const line of yield* Stream.runCollect(store.read(run.id))) {
         if (!('applied' in line)) continue;
         const { applied: a } = line;
+        if (a.status !== 'applied') continue;
         if (a.url !== url && !(id && a.proposal.kind === 'comment' && a.id === id)) continue;
         const at = a.at ?? line.at;
         if (!found || at > found.at) found = { run, step: line.step, at };

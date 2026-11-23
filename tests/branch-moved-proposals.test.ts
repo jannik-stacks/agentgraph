@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { appendFileSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Deferred, Effect, Layer } from 'effect';
@@ -28,7 +29,7 @@ import {
 import { runWorkflow } from '../src/run/drive.ts';
 import { type Command, type Run, type SessionEvent, TrackerError } from '../src/types.ts';
 
-const refuse = (p: Proposal) => Effect.succeed({ proposal: p, ok: false, reason: 'branch moved' });
+const refuse = (p: Proposal) => Effect.succeed({ proposal: p, status: 'refused' as const, reason: 'branch moved' });
 
 describe('a run branch that moved', () => {
   const small = makeTestGraph('graph', { types: { run: '! grep -q TODO hello.txt' } });
@@ -90,7 +91,7 @@ describe('a run branch that moved', () => {
           readTrace(where.data, 'run-7').some(
             t =>
               'applied' in t &&
-              t.applied.ok &&
+              t.applied.status === 'applied' &&
               t.applied.proposal.kind === 'comment' &&
               t.applied.proposal.body === 'First'
           )
@@ -103,7 +104,7 @@ describe('a run branch that moved', () => {
     expect(readTrace(where.data, 'target-8').filter(t => 'told' in t)).toHaveLength(1);
     expect(bodies(issue).filter(body => body.split('\n\n')[0] === 'First')).toHaveLength(1);
     const applied = readTrace(where.data, 'run-7').flatMap(t =>
-      'applied' in t && t.applied.ok ? [t.applied.proposal] : []
+      'applied' in t && t.applied.status === 'applied' ? [t.applied.proposal] : []
     );
     expect(applied.filter(p => p.kind === 'comment' && p.body === 'Second')).toHaveLength(1);
     expect(applied.filter(p => p.kind === 'push')).toHaveLength(1);
@@ -317,7 +318,8 @@ describe('a run branch that moved', () => {
       const applied = readTrace(where.data, 'run-7').flatMap(t =>
         'applied' in t && t.applied.proposal.kind === 'push' ? [t.applied] : []
       );
-      expect(applied[0]).toMatchObject({ ok: false, held: ['.github/workflows/socket.yml'] });
+      expect(applied[0]).toMatchObject({ status: 'refused', held: ['.github/workflows/socket.yml'] });
+      assert(applied[0]?.status === 'refused');
       expect(Boolean(applied[0]!.url)).toBe(!only);
     }
   );
@@ -339,9 +341,9 @@ describe('a run branch that moved', () => {
     );
     expect(done.status).toBe('done');
     expect(specs).toHaveLength(2);
-    expect(applied.map(p => ({ ok: p.ok, held: p.held }))).toEqual([
-      { ok: false, held: ['.github/workflows/socket.yml'] },
-      { ok: true, held: ['.github/workflows/socket.yml'] },
+    expect(applied.map(p => ({ status: p.status, held: p.status !== 'skipped' ? p.held : undefined }))).toEqual([
+      { status: 'refused', held: ['.github/workflows/socket.yml'] },
+      { status: 'applied', held: ['.github/workflows/socket.yml'] },
     ]);
     expect(git(where.origin, 'show', 'agentgraph/7:other.txt')).toBe('other');
   });

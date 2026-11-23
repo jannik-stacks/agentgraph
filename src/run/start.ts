@@ -77,7 +77,7 @@ export const createIssues = (w: Workflow, run: Run, children: Child[]) =>
     };
     const refused = children.flatMap((p, i): Applied[] => {
       const reason = refusal(p, i);
-      return reason === undefined ? [] : [{ proposal: p, ok: false, reason }];
+      return reason === undefined ? [] : [{ proposal: p, status: 'refused', reason }];
     });
     if (refused.length > 0) return refused;
 
@@ -88,7 +88,7 @@ export const createIssues = (w: Workflow, run: Run, children: Child[]) =>
       if (cached[i]) {
         const a = cached[i]!;
         applied.push(a);
-        numbers.push(a.proposal.kind === 'issue' ? Number(a.id) : a.issue!);
+        numbers.push(a.proposal.kind === 'issue' && a.status === 'applied' ? Number(a.id) : a.issue!);
         continue;
       }
       const links = isPart(p)
@@ -112,7 +112,7 @@ export const createIssues = (w: Workflow, run: Run, children: Child[]) =>
       };
       const a = yield* writeOnce(run, run.issue, key, tracker.apply(run.issue, filed), filed);
       applied.push(a);
-      if (!a.ok) break;
+      if (a.status !== 'applied') break;
       numbers.push(Number(a.id));
     }
     const parts = numbers.filter((_, i) => isPart(children[i]!));
@@ -187,7 +187,7 @@ export const findUndispatchable = (
                 : held
                   ? `a live run holds #${p.issue}`
                   : undefined;
-    return reason === undefined ? [] : asked.map((proposal): Applied => ({ proposal, ok: false, reason }));
+    return reason === undefined ? [] : asked.map((proposal): Applied => ({ proposal, status: 'refused', reason }));
   });
 
 export const startProposedRun = (

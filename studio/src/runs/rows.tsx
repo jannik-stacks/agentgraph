@@ -321,22 +321,27 @@ const lines: {
       </>
     ),
   }),
-  applied: ({ applied: { proposal: p, ok, url, reason } }, by) => ({
-    summary: (
-      <>
-        <Pill of="proposal" kind={kindName(p.kind)} /> {muted(by)} {short(gist(p), 120)}
-        {!ok && flag(` failed: ${short(reason ?? '', 120)}`)} {url && <Url url={url} />}
-      </>
-    ),
-    body: ('body' in p || 'question' in p) && (
-      <div className="space-y-1 py-0.5 pl-4">
-        {'title' in p && <p className="font-medium">{p.title}</p>}
-        {'body' in p && <Markdown text={p.body} className="agi-tight" />}
-        {'question' in p && <Markdown text={p.question} className="agi-tight" />}
-        {url && p.kind === 'pull_request' && <Url url={`${url}/files`} text="the diff on GitHub" />}
-      </div>
-    ),
-  }),
+  applied: ({ applied }, by) => {
+    const { proposal: p, status } = applied;
+    const url = status === 'skipped' ? undefined : applied.url;
+    return {
+      summary: (
+        <>
+          <Pill of="proposal" kind={kindName(p.kind)} /> {muted(by)} {short(gist(p), 120)}
+          {status === 'skipped' && muted(` skipped: ${short(applied.reason, 120)}`)}
+          {status === 'refused' && flag(` failed: ${short(applied.reason, 120)}`)} {url && <Url url={url} />}
+        </>
+      ),
+      body: ('body' in p || 'question' in p) && (
+        <div className="space-y-1 py-0.5 pl-4">
+          {'title' in p && <p className="font-medium">{p.title}</p>}
+          {'body' in p && <Markdown text={p.body} className="agi-tight" />}
+          {'question' in p && <Markdown text={p.question} className="agi-tight" />}
+          {url && p.kind === 'pull_request' && <Url url={`${url}/files`} text="the diff on GitHub" />}
+        </div>
+      ),
+    };
+  },
   outcome: line => ({
     summary: (
       <>
@@ -596,6 +601,7 @@ const Visits = ({ r }: { r: ServedRun }) => (
 
 export const runRow = (r: ServedRun, open = false, expand = false, target?: Line): Row => {
   const { run } = r;
+  const branch = r.branch?.replace(/^refs\/(?:remotes\/fork|heads)\//, '');
   return {
     key: makeRunKey(r.instance, run.id),
     open,
@@ -652,11 +658,11 @@ export const runRow = (r: ServedRun, open = false, expand = false, target?: Line
           )
         )}
         {r.pull && <Url url={r.pull} />}
-        {r.branch &&
-          (r.repo ? (
-            <Url url={`https://github.com/${r.repo}/tree/${r.branch}`} text={r.branch} />
+        {branch &&
+          (r.fork || r.repo ? (
+            <Url url={`https://github.com/${r.fork || r.repo}/tree/${branch}`} text={branch} />
           ) : (
-            <span className="text-zinc-500">{r.branch}</span>
+            <span className="text-zinc-500">{branch}</span>
           ))}
         {r.urls.map(url => (
           <Url key={url} url={url} />

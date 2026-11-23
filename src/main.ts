@@ -25,7 +25,7 @@ import { parseLabels, writeRunLabels } from './labels.ts';
 import { sessionPermitsRef, type Services } from './run/execute.ts';
 import { type Run, type RunRecord, StoreError } from './types.ts';
 
-export const secretSettings = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_PROXY_KEYS'];
+const secretSettings = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_GITHUB_TOKEN', 'AGENTGRAPH_PROXY_KEYS'];
 const readText = (file: string) => readFile(file.replace(/^~(?=\/|$)/, homedir()), 'utf8');
 
 export const readEnvFile = async (file: string | undefined): Promise<Record<string, string>> =>
@@ -36,8 +36,11 @@ const instanceSettings = [
   'AGENTGRAPH_APP_ID',
   'AGENTGRAPH_APP_KEY',
   'AGENTGRAPH_APP_KEY_FILE',
+  'AGENTGRAPH_GITHUB_TOKEN',
+  'AGENTGRAPH_GITHUB_TOKEN_FILE',
   'AGENTGRAPH_TRACKER',
   'AGENTGRAPH_REPO',
+  'AGENTGRAPH_FORK',
   'AGENTGRAPH_TRUST',
   'AGENTGRAPH_DIR',
   'AGENTGRAPH_PROVIDER',
@@ -69,6 +72,7 @@ export const readEngineEnv = async (layers: Vars[]): Promise<Record<string, stri
 
 const readInstanceVars = (i: Partial<Instance>): Vars => ({
   AGENTGRAPH_REPO: i.repo,
+  AGENTGRAPH_FORK: i.fork,
   AGENTGRAPH_TRUST: i.trust?.join(','),
   AGENTGRAPH_IMAGE: i.image,
   AGENTGRAPH_PROVIDER: i.provider,
@@ -145,7 +149,8 @@ export const writeTriggeringIssue = async (
       })
     ).pipe(Effect.provide(tracker))
   );
-  if (!applied.ok || !applied.id) throw new Error(applied.reason ?? 'tracker did not return an issue number');
+  if (applied.status !== 'applied') throw new Error(applied.reason);
+  if (!applied.id) throw new Error('tracker did not return an issue number');
   return Number(applied.id);
 };
 

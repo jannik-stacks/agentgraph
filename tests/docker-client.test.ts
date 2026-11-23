@@ -548,6 +548,70 @@ describe('docker checkout', () => {
     expect(config).not.toContain('extraheader');
   });
 
+  it('refreshes upstream bases and fork work branches independently, including pruning', async () => {
+    const upstream = origin();
+    const fork = tmp('fork');
+    git(fork, 'clone', '-q', upstream, '.');
+    git(fork, 'checkout', '-q', '-b', 'agentgraph/7');
+    writeFileSync(join(fork, 'a.txt'), 'fork work\n');
+    git(fork, 'commit', '-qam', 'fork work');
+    const head = git(fork, 'rev-parse', 'HEAD');
+    git(fork, 'branch', '-f', 'feature', head);
+    git(upstream, 'branch', 'agentgraph/7', 'feature');
+    git(upstream, 'branch', 'agentgraph/8', 'main');
+    writeFileSync(join(upstream, 'a.txt'), 'upstream ahead\n');
+    git(upstream, 'commit', '-qam', 'upstream ahead');
+    const base = git(upstream, 'rev-parse', 'HEAD');
+    const data = tmp('fork-data');
+    const layer = dockerSandbox({ data, origin: upstream, fork: { origin: fork }, cache: '' });
+    const first = await use(layer, s =>
+      Effect.all([
+        s.readHead('main'),
+        s.readHead('origin/HEAD'),
+        s.readHead('agentgraph/7'),
+        s.readHead('refs/remotes/fork/feature'),
+        s.readHead('feature'),
+      ])
+    );
+    const second = await use(layer, s => s.readHead('agentgraph/7'));
+    expect(first).toEqual(Exit.succeed([base, base, head, head, git(upstream, 'rev-parse', 'feature')]));
+    expect(second).toEqual(Exit.succeed(head));
+    expect(git(join(data, 'mirror.git'), 'branch', '--list', 'agentgraph/8')).toBe('');
+    git(fork, 'checkout', '-q', 'main');
+    git(fork, 'branch', '-D', 'agentgraph/7');
+    const refreshed = await use(layer, s => s.readHead('main'));
+    expect(refreshed).toEqual(Exit.succeed(base));
+    expect(git(join(data, 'mirror.git'), 'branch', '--list', 'agentgraph/7')).toBe('');
+  });
+
+  it.each(['merged', 'moved', 'unmerged'] as const)('cleans only the exact merged fork head: %s', async state => {
+    const upstream = origin();
+    const fork = tmp('cleanup-fork');
+    git(fork, 'clone', '-q', upstream, '.');
+    git(fork, 'branch', 'agentgraph/7', 'origin/feature');
+    const head = git(fork, 'rev-parse', 'agentgraph/7');
+    git(upstream, 'branch', 'agentgraph/7', 'main');
+    const data = tmp('cleanup-fork-data');
+    const layer = dockerSandbox({ data, origin: upstream, fork: { origin: fork }, cache: '' });
+    const listed = await use(layer, s => Effect.andThen(s.readHead('main'), s.readBranches()));
+    git(fork, 'commit', '--allow-empty', '-qm', 'later work');
+    const moved = git(fork, 'rev-parse', 'HEAD');
+    if (state === 'moved') git(fork, 'update-ref', 'refs/heads/agentgraph/7', moved, head);
+    const cleaned = await use(layer, s =>
+      s.removeBranch('agentgraph/7', 'main', state === 'unmerged' ? undefined : head)
+    );
+    const refreshed = await use(layer, s => s.readHead('main'));
+    const remaining = state === 'merged' ? '' : state === 'moved' ? moved : head;
+    expect(listed).toEqual(Exit.succeed(expect.arrayContaining(['agentgraph/7'])));
+    expect(Exit.isSuccess(cleaned)).toBe(state !== 'moved');
+    expect(Exit.isSuccess(refreshed)).toBe(true);
+    expect(git(fork, 'for-each-ref', '--format=%(objectname)', 'refs/heads/agentgraph/7')).toBe(remaining);
+    expect(git(join(data, 'mirror.git'), 'for-each-ref', '--format=%(objectname)', 'refs/heads/agentgraph/7')).toBe(
+      remaining
+    );
+    expect(git(upstream, 'rev-parse', 'agentgraph/7')).toBe(git(upstream, 'rev-parse', 'main'));
+  });
+
   it('mirrors branches, tags and the default branch head but not pull refs', async () => {
     const data = tmp('data');
     const from = origin();

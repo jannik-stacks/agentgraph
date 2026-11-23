@@ -1,6 +1,6 @@
 import { Effect, Logger, Stream } from 'effect';
 import { expect, it, vi } from 'vitest';
-import { fileStore, readChecksSync, readRunSync, Store } from '../src/store.ts';
+import { fileStore, readChecksSync, readRunSync, readTraceSync, Store } from '../src/store.ts';
 import { tmp, write } from './kit.ts';
 
 const run = {
@@ -56,4 +56,15 @@ it('names the file and row of a trace or check line that does not decode, and sk
   expect(readChecksSync(dir, 'r1')).toEqual([check]);
   expect(error).toHaveBeenCalledWith(expect.stringMatching(/skipped incomplete JSONL row at line 2/));
   await expect(withStore(dir, s => Stream.runCollect(s.read('r1')))).rejects.toThrow(/r1\/trace\.jsonl:2/);
+});
+
+it('reads saved history that clears fields removed from the current run schema', async () => {
+  const dir = tmp('store-historical-fields');
+  const saved = { ...at, saved: { status: 'waiting' }, cleared: ['reason', 'comment'] };
+  write(dir, {
+    'r1/run.json': JSON.stringify(run),
+    'r1/trace.jsonl': `${JSON.stringify(saved)}\n`,
+  });
+  expect(readTraceSync(dir, 'r1')).toEqual([saved]);
+  expect(await withStore(dir, s => Stream.runCollect(s.read('r1')))).toEqual([saved]);
 });

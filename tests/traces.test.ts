@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { makeRun, tmp, write } from './kit.ts';
 
 const script = join(resolve(import.meta.dirname, '..'), 'bin/traces.mjs');
-const applied = (proposal: object) => JSON.stringify({ at: '', step: 'implement', applied: { ok: true, proposal } });
+const applied = (proposal: object) =>
+  JSON.stringify({ at: '', step: 'implement', applied: { status: 'applied', proposal } });
 const run = (id: string) => JSON.stringify(makeRun({ id }));
 const session = (step: string, s: object) => JSON.stringify({ at: '', step, session: { resumed: false, ...s } });
 

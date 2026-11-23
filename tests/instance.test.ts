@@ -4,7 +4,7 @@ import { parse, stringify } from 'yaml';
 import { ConfigProvider, Config, Effect } from 'effect';
 import { expect, it, vi } from 'vitest';
 import { ensureGraph, ensureInstanceGraph, ensureInstance, findInstances } from '../src/instance.ts';
-import { readInstanceEnv } from '../src/main.ts';
+import { readInstanceEnv, removeShellSettings } from '../src/main.ts';
 import { hostSettings } from '../src/services.ts';
 import { commit } from './kit.ts';
 import { seeded } from './fixtures.ts';
@@ -30,6 +30,7 @@ it('reads every instance field strictly and resolves paths against its folder', 
   const record = {
     ...parse(readFileSync(file, 'utf8')),
     repo: 'owner/repository',
+    fork: 'contributor/repository',
     graph: '../../seed',
     env: '../keys.env',
     loop: true,
@@ -41,6 +42,7 @@ it('reads every instance field strictly and resolves paths against its folder', 
   const [read] = findInstances(join(root, 'instances'));
   expect(read).toMatchObject({
     repo: 'owner/repository',
+    fork: 'contributor/repository',
     env: join(root, 'instances', 'keys.env'),
     graph: seed,
     loop: true,
@@ -213,6 +215,30 @@ it('reads the flags, then the instance env file, then instance.yaml, then the sh
       AGENTGRAPH_TRUST: 'shell-login',
       AGENTGRAPH_STUDIO_URL: 'http://shell.example/one',
     });
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+const read = async (instance = {}, flags = {}) => (await readInstanceEnv(instance, {}, {}, flags)).env.AGENTGRAPH_FORK;
+it('scopes fork configuration with the same precedence as the upstream repository', async () => {
+  const { root } = seeded('instance-fork', { 'file.txt': 'content' });
+  const env = join(root, 'fork.env');
+  writeFileSync(env, 'AGENTGRAPH_FORK=file/project\n');
+  vi.stubEnv('AGENTGRAPH_FORK', 'shell/project');
+  try {
+    expect(await read()).toBe('shell/project');
+    expect(await read({ fork: 'instance/project' })).toBe('instance/project');
+    expect(await read({ fork: 'instance/project', env })).toBe('file/project');
+    expect(await read({ fork: 'instance/project', env }, { AGENTGRAPH_FORK: 'flag/project' })).toBe('flag/project');
+    removeShellSettings(1);
+    expect(process.env.AGENTGRAPH_FORK).toBe('shell/project');
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    removeShellSettings(2);
+    expect(process.env.AGENTGRAPH_FORK).toBeUndefined();
+    expect(await read({ fork: 'other/project' })).toBe('other/project');
+    expect(await read()).toBeUndefined();
+    warn.mockRestore();
   } finally {
     vi.unstubAllEnvs();
   }

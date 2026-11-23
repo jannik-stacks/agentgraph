@@ -100,7 +100,7 @@ const sumWaitMs = (run: Pick<RunRecord, 'ended'>, trace: readonly Trace[], now: 
   for (const t of trace) {
     if (!('saved' in t)) continue;
     Object.assign(state, t.saved);
-    for (const key of t.cleared ?? []) delete state[key];
+    for (const key of t.cleared ?? []) Reflect.deleteProperty(state, key);
     if (isWaitingOnPeople(state)) from ??= t.at;
     else if (from !== undefined) {
       waited += Date.parse(t.at) - Date.parse(from);

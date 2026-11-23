@@ -49,7 +49,7 @@ export const findTraceLinks = (trace: Trace[]): { pull?: string; branch?: string
   let pull: string | undefined;
   let branch: string | undefined;
   for (const line of trace) {
-    if (!('applied' in line) || !line.applied.ok) continue;
+    if (!('applied' in line) || line.applied.status !== 'applied') continue;
     const p = line.applied.proposal;
     if ('branch' in p) branch = p.branch;
     if (p.kind === 'pull_request') pull = line.applied.url ?? pull;
@@ -63,7 +63,10 @@ export const makeRunSummary = (run: RunRecord, lines: Line[]) => ({
   ...(lines.length > 0 && { lastAt: lines.at(-1)!.at }),
   trail: isOnIssue(run) ? makeRunTrail(lines) : [],
   urls: lines.flatMap(line =>
-    'applied' in line && line.applied.url && ['issue', 'merge'].includes(line.applied.proposal.kind)
+    'applied' in line &&
+    line.applied.status === 'applied' &&
+    line.applied.url &&
+    ['issue', 'merge'].includes(line.applied.proposal.kind)
       ? [line.applied.url]
       : []
   ),

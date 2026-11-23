@@ -38,7 +38,11 @@ for (const id of readdirSync(data)) {
   }
   if (!run) findings.push(`${id}: run.json missing`);
   const kinds = run && required[run.workflow];
-  if (run?.status === 'done' && kinds && !trace.some(t => t.applied?.ok && kinds.includes(t.applied.proposal?.kind)))
+  if (
+    run?.status === 'done' &&
+    kinds &&
+    !trace.some(t => t.applied?.status === 'applied' && kinds.includes(t.applied.proposal?.kind))
+  )
     findings.push(`${id}: done without ${kinds.join(' or ')}`);
 }
 if (waits.length) console.log(waits.join('\n'));

@@ -138,7 +138,9 @@ export const readTrace = (data: string, id: string) => readLines<Trace>(join(dat
 export const readChecks = (data: string, id: string) => readLines<CheckEntry>(join(data, id, 'checks.jsonl'));
 
 export const reactions = (data: string, id: string) =>
-  readTrace(data, id).flatMap(t => ('applied' in t && t.applied.proposal.kind === 'react' ? [t.applied.ok] : []));
+  readTrace(data, id).flatMap(t =>
+    'applied' in t && t.applied.proposal.kind === 'react' ? [t.applied.status === 'applied'] : []
+  );
 
 export const bodies = (t: { events: Event[] }) => t.events.flatMap(m => (m.comment ? [m.comment.body] : []));
 

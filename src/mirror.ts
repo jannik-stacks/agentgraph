@@ -6,8 +6,9 @@ import { Effect, Layer, Semaphore, Stream } from 'effect';
 import { findDeadCheckouts, getCachePath, getCheckoutPaths, removeCheckout, writeCheckoutOwner } from './env.ts';
 import { removeBranch } from './disk.ts';
 import { commitCheckout, commitCheckoutOnce, hostGit, readGit, readBranches, readWorktreeAdmin } from './git.ts';
+import { branchPrefix, forkRefPrefix, isAgentBranch, type TrackerSetup } from './tracker.ts';
 import { type Box, Runner, Sandbox, SandboxError } from './sandbox.ts';
-import { type Checkout, type Command, type Exit, type TrackerError } from './types.ts';
+import { type Checkout, type Command, type Exit } from './types.ts';
 
 const fetched = ['+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*', '+HEAD:refs/remotes/origin/HEAD'];
 const outputLimit = 64 << 10;
@@ -22,12 +23,11 @@ const auth = (token: string) => ({
 
 const mirrorLocks = new Map<string, Semaphore.Semaphore>();
 
-export const makeSandbox = (o: {
-  data: string;
-  origin: string;
-  local?: boolean;
-  token?: Effect.Effect<string, TrackerError>;
-}): Layer.Layer<Sandbox, never, Runner> =>
+export const makeSandbox = (
+  o: {
+    data: string;
+  } & TrackerSetup['origin']
+): Layer.Layer<Sandbox, never, Runner> =>
   Layer.effect(
     Sandbox,
     Effect.gen(function* () {
@@ -68,7 +68,31 @@ export const makeSandbox = (o: {
             yield* Effect.asVoid(hostGit({ GIT_DIR: part }, ['config', 'remote.origin.url', o.origin]));
             yield* Effect.promise(() => rename(part, mirror).catch(() => rm(part, { recursive: true, force: true })));
           }
-          yield* inMirror(['fetch', '--prune', '--update-head-ok', 'origin', ...fetched], env);
+          yield* inMirror(
+            [
+              'fetch',
+              '--prune',
+              '--update-head-ok',
+              'origin',
+              ...fetched,
+              ...(o.fork ? [`^refs/heads/${branchPrefix}*`] : []),
+            ],
+            env
+          );
+          if (o.fork) {
+            const forkEnv = o.fork.token ? auth(yield* Effect.mapError(o.fork.token, e => infra(e.message))) : {};
+            yield* inMirror(
+              [
+                'fetch',
+                '--prune',
+                '--update-head-ok',
+                o.fork.origin,
+                `+refs/heads/${branchPrefix}*:refs/heads/${branchPrefix}*`,
+                `+refs/heads/*:${forkRefPrefix}*`,
+              ],
+              forkEnv
+            );
+          }
         })
       );
       const verify = (name: string) =>
@@ -217,11 +241,19 @@ export const makeSandbox = (o: {
 
       return {
         readBranches: () =>
-          readBranches(mirror, o.local ? undefined : '%(if)%(worktreepath)%(then)%(refname:strip=2)%(end)'),
+          readBranches(mirror, o.local || o.fork ? undefined : '%(if)%(worktreepath)%(then)%(refname:strip=2)%(end)'),
         readHead,
         removeBranch: (branch, base, head) =>
           lock.withPermits(1)(
-            removeBranch(mirror, branch, o.local && base === 'origin/HEAD' ? 'HEAD' : base, head, o.data)
+            Effect.gen(function* () {
+              const ref = `refs/heads/${branch}`;
+              const before = yield* verify(ref);
+              yield* removeBranch(mirror, branch, o.local && base === 'origin/HEAD' ? 'HEAD' : base, head, o.data);
+              if (!o.fork || !isAgentBranch(branch) || !head || before !== head || (yield* verify(ref))) return;
+              const env = o.fork.pushToken ? auth(yield* Effect.mapError(o.fork.pushToken, e => infra(e.message))) : {};
+              yield* inMirror(['push', `--force-with-lease=${ref}:${head}`, o.fork.origin, `:${ref}`], env);
+              yield* inMirror(['update-ref', '-d', `${forkRefPrefix}${branch}`, head]);
+            })
           ),
         checkout,
         lines,

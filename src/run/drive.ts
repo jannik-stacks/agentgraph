@@ -179,7 +179,7 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
           const head = yield* readGit(made.git, [...gitIdentity, 'commit-tree', tree, '-p', from, '-m', 'Saved work']);
           const applied = yield* tracker.apply(run.issue, { kind: 'rebase', branch: own, from, onto, head }, made);
           yield* store.trace(run.id, { at: new Date().toISOString(), step: current.step, applied });
-          if (!applied.ok)
+          if (applied.status === 'refused')
             current = {
               ...current,
               feedback: [
@@ -217,7 +217,7 @@ export const runWorkflow = (w: Workflow, run: Run, graph: Graph): Effect.Effect<
         }
         if (
           tried.outcome.kind === 'failed' &&
-          tried.outcome.proposals.some(a => !a.ok && a.proposal.kind === 'push' && a.moved)
+          tried.outcome.proposals.some(a => a.status === 'refused' && a.proposal.kind === 'push' && a.moved)
         ) {
           current = tried.run;
           yield* store.put(current);
