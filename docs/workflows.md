@@ -36,7 +36,7 @@ Conditional `run` proposals start children; parents wait, then repeat the step. 
 
 Runs also start through human or [agent dispatch](#dispatch), [retros](#retros) and [conflict handling](#when-the-base-or-the-graph-moves). `pull_request` and `branches` start nothing.
 
-`/agent` selects the first comment workflow. Unmarked comments supply context; pull request comments belong to their issue. Taken comments retain eyes reactions.
+`/agent` selects the first comment workflow. Unmarked comments supply context unless a workflow [hears them](#what-a-live-run-hears); pull request comments belong to their issue. Taken comments retain eyes reactions.
 
 A label starts its workflow once per issue; restart starts it again. One work run holds the issue. Removing its trigger label stops it. <!-- code: src/workflow.ts#isIssueTriggered --> <!-- code: src/run/trigger.ts#instruct --> <!-- code: src/workflow.ts#Front --> <!-- code: src/run/trigger.ts#tick -->
 
@@ -61,6 +61,18 @@ Commands prefer work over routers. Restart retains answers and branch, except cl
 
 An answer-only request needs no code change. Otherwise, a first session granted `push` fails if it changes nothing. <!-- code: src/context.ts#formatRequest src/run/attempt.ts#pickTryOutcome --> <!-- code: src/workflow.ts#getEventOutcome -->
 
+### What a live run hears
+
+A workflow's `on` map can say what a trusted event does to its live runs:
+
+```yaml
+on: { issues: { label: agent:ready }, comment: answer, changes_requested: answer }
+```
+
+Keys are `comment`, `approved`, `changes_requested` and `merged`. Values are `answer`, `back`, `pass`, `stop` and `none`. Absent keys keep the usual outcome: a marked comment answers; at a human wait, approval or merge passes and requested changes go back. `pass` and `back` apply only at a human wait; elsewhere the usual outcome stays. Commands, closing, the trigger label and limit labels work the same with any map. Bot and engine comments never reach a run. <!-- code: src/workflow.ts#getHeard src/workflow.ts#getEventOutcome src/event.ts#HeardKinds -->
+
+With `comment: answer`, any trusted comment on the issue or its pull request wakes the run, without `/agent`. The prompt says the comment may be meant for someone else; the agent then proposes nothing. With a router, the comment starts the router instead. An answered review carries its body and line comments. Per issue, per person or by a classifier, [event hooks](plugins.md#event-hooks) decide in code. <!-- code: src/workflow.ts#unmarkedNote src/run/hear.ts#isRouted src/run/trigger.ts#tick src/run/follow.ts#runAside -->
+
 ## Project boards
 
 Column triggers poll each pass. `project` selects a board; otherwise only the repository owner's boards count. Either `label` or `column` can trigger work; the column also adds the configured label. Leaving the column does not stop work. <!-- code: src/github.ts#githubTracker src/run/trigger.ts#tick --> <!-- code: src/workflow.ts#issueSources --> <!-- code: src/run/trigger.ts#tick -->
@@ -81,7 +93,7 @@ Optional `step` selects the starting step. Each try allows one `run` proposal. T
 
 ### Routing
 
-An `issue_comment` workflow whose agent has `tell` acts as a router beside work runs. When a router exists, only comment workflows hear `/agent` directly; others receive forwarded text. <!-- code: src/run/hear.ts#getHeardEvent -->
+An `issue_comment` workflow whose agent has `tell` acts as a router beside work runs. When a router exists, only comment workflows hear `/agent` directly; others receive forwarded text. <!-- code: src/run/hear.ts#isRouted -->
 
 `tell` delivers maintainer feedback, answers or commands. Work precedes retros; missing recipients fail. See [`told` records](runs.md#the-trace). <!-- code: src/run/start.ts#findRecipient src/run/hear.ts#readRunEvents src/run/trigger.ts#tick -->
 
@@ -109,13 +121,13 @@ Runs wait at human steps, on `ask` or after exhausting `tries` or `rounds`. Ques
 
 The engine reads labels before setup and every try. End checks, asides, follows and catch-ups use recorded `limits`. `minutes` limits each command. <!-- code: src/run/drive.ts#runWorkflow src/folder.ts#makeRunGraph -->
 
-Session and check costs count toward `usd-per-run`. Reaching it or timing out makes the run wait with instructions. <!-- code: src/run/settle.ts#readRunSpend src/trace.ts#getRunSpend src/run/drive.ts#runWorkflow --> <!-- code: src/folder.ts#formatLimitRaise src/context.ts#proposeQuestion -->
+Session, check and [event hook](plugins.md#event-hooks) costs count toward `usd-per-run`. Reaching it or timing out makes the run wait with instructions. <!-- code: src/run/settle.ts#readRunSpend src/trace.ts#getRunSpend src/run/drive.ts#runWorkflow --> <!-- code: src/folder.ts#formatLimitRaise src/context.ts#proposeQuestion -->
 
 Trusted limit-label changes or `/agent` resume the run with spend, sessions and feedback retained. Limits are checked before sessions; timeouts require higher `minutes`. Retros and conflict follows stop instead. Add a label to change a limit; repository label renames produce no issue events. <!-- code: src/workflow.ts#getEventOutcome src/workflow.ts#transition -->
 
 ## Asides
 
-At human waits, asides use throwaway checkouts of the pull request head. They fork the `back` target's session or start fresh with the thread. Edits are discarded. Only granted `comment` and `back` proposals apply: `comment` keeps waiting; `back` resumes work. Without an open pull request, feedback returns directly to work. <!-- code: src/run/follow.ts#runAside -->
+At human waits, asides use throwaway checkouts of the pull request head. They fork the `back` target's session or start fresh with the thread. Edits are discarded. Only granted `comment` and `back` proposals apply: `comment` keeps waiting; `back` resumes work; an empty proposal list keeps waiting without a reply. Without an open pull request, feedback returns directly to work. <!-- code: src/run/follow.ts#runAside -->
 
 ## Comments while it works
 
@@ -159,7 +171,7 @@ Status headers move from the issue to its pull request and track status changes,
 
 ## Order and limits
 
-`limits.parallel` caps drives, including end checks. `limits.sessions` caps instance sessions and scripts, including judges. `agi loop --parallel <n>` caps drives across instances. Routers use neither slot. See [limits](reference.md#settingsyaml). <!-- code: src/run/trigger.ts#tick src/run/trigger.ts#runPass src/run/execute.ts#sessionPermitsRef -->
+A loop does not cap drives; a run takes a slot only while it works. A single pass without a loop looks at `limits.parallel` issues at a time. `limits.parallel` caps commands in the sandbox: scripts, check commands, setups and checkouts. `limits.sessions` caps sessions, including judges. `agi loop --parallel <n>` caps commands across instances. A freed slot goes to the run at the latest step of its workflow, then to the one started first, so new issues wait behind runs that are nearly done. Work on ended or waiting runs goes before both. Routers take no slot. See [limits](reference.md#settingsyaml). <!-- code: src/run/trigger.ts#tick src/run/trigger.ts#runPass src/run/execute.ts#makeSlots src/run/execute.ts#waitForSlot src/run/drive.ts#runWorkflow -->
 
 Loops poll; folder edits trigger scans. Background drives run oldest first under run locks. Interrupted runs resume on the next drive. `agi start` and `loop --once` run in the foreground. See [loop controls](local.md#starting-and-stopping-a-loop). <!-- code: bin/run.ts#serve src/main.ts#start src/run/trigger.ts#scanTrackerEvents --> <!-- code: src/run/trigger.ts#scanTrackerEvents src/run/trigger.ts#scanIssuesAndRunningRuns --> <!-- code: src/run/trigger.ts#runPass src/run/trigger.ts#startLoopDrives src/main.ts#start --> <!-- code: src/run/trigger.ts#runPass -->
 

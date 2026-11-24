@@ -278,25 +278,25 @@ export const runAttempt = (
     const replies: string[] = [];
     let tried = run;
     let spoke: string | undefined;
-    const watch = (by: Run, seen: Seen) =>
+    const hear = (by: Run, seen: Seen) =>
       Effect.gen(function* () {
-        for (;;) {
-          yield* Effect.sleep('1 minute');
-          const now = yield* Effect.result(readIssueWithPull(w, run, graph));
-          if (Result.isFailure(now)) {
-            yield* Effect.logWarning(`news for run ${run.id}`, now.failure);
-            continue;
-          }
-          yield* writeNews(run, work, seen, now.success);
-          yield* writeHeardEvents(run, getEvents(now.success)).pipe(
-            Effect.catch(e => Effect.logWarning(`heard events for run ${run.id}`, e))
-          );
-          const cut = yield* readHeardOutcome(graph, w, by, now.success).pipe(
-            Effect.catch(e => Effect.as(Effect.logWarning(`interrupt for run ${run.id}`, e), undefined))
-          );
-          if (cut && (cut.outcome.kind !== 'answer' || w.concurrency === 'cancel')) return cut;
-        }
+        const now = yield* Effect.result(readIssueWithPull(w, run, graph));
+        if (Result.isFailure(now)) return yield* Effect.logWarning(`news for run ${run.id}`, now.failure);
+        yield* writeNews(run, work, seen, now.success);
+        yield* writeHeardEvents(run, getEvents(now.success)).pipe(
+          Effect.catch(e => Effect.logWarning(`heard events for run ${run.id}`, e))
+        );
+        const cut = yield* readHeardOutcome(graph, w, by, now.success).pipe(
+          Effect.catch(e => Effect.as(Effect.logWarning(`interrupt for run ${run.id}`, e), undefined))
+        );
+        return cut && (cut.outcome.kind !== 'answer' || w.concurrency === 'cancel') ? cut : undefined;
       });
+    const watch = (by: Run, seen: Seen) =>
+      hear(by, seen).pipe(
+        Effect.delay('1 minute'),
+        Effect.repeat({ until: cut => cut !== undefined }),
+        Effect.map(cut => cut!)
+      );
     const held =
       w.branch === undefined ||
       t.issue.pull !== undefined ||
@@ -407,7 +407,7 @@ export const runAttempt = (
               read: [inside.news],
               ...(resume && { resume }),
             },
-            { item, until: watch(tried, seen), fresh }
+            { item, until: watch(tried, seen), heard: hear(tried, seen), fresh }
           );
           spoke = r.id ?? spoke;
           tried = yield* readContinuedRun(

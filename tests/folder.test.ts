@@ -86,7 +86,7 @@ describe('loadGraph', () => {
     const { dir } = fromFixture('kit');
     const graph = await Effect.runPromise(loadGraph(dir, harnesses));
     expect(graph.repo).toBe('');
-    expect(graph.limits).toEqual({ minutes: 20, usdPerRun: 10, parallel: 2, sessions: 4 });
+    expect(graph.limits).toEqual({ minutes: 20, usdPerRun: 10, parallel: 2, sessions: 2 });
     expect(graph.agents.implementor).toEqual({
       harness: 'opencode',
       tools: [],

@@ -58,7 +58,7 @@ const makeTracker = async (events: { kind: string; at: string }[]) => {
   );
   return {
     layer: folderTracker(tracker, 'morgan', ['morgan']),
-    origin: { origin: join(tracker, 'origin.git'), local: true },
+    origin: { kind: 'folder' as const, dir: tracker },
   };
 };
 

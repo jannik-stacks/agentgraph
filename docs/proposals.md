@@ -65,4 +65,4 @@ The engine rejects the batch for withheld text, parts duplicating open titles, i
 
 For workflows with `branch`, dependencies hold runs until those issues close. With `stacks: true`, unstarted children await open parents' pull requests; otherwise stacking imposes no hold. Held runs stay `running` with reasons. After a parent merges, its child starts on the configured base. Unmerged closure keeps children held. <!-- code: src/run/trigger.ts#findHold src/run/trigger.ts#isWorkLanded src/run/drive.ts#runWorkflow -->
 
-When a stacked parent's head changes, children rebase onto it. Conflicts require manual rebases. <!-- code: src/run/follow.ts#runFollow -->
+When a stacked parent's head changes, children rebase onto it from the point where their branch forks, read from git on every follow. A conflict asks once per parent head and branch tip, when the run waits. When the parent merges, the child rebases onto the parent's base and its pull request moves there; a conflict then goes to the [catch-up](workflows.md#when-the-base-or-the-graph-moves). <!-- code: src/run/follow.ts#runFollow -->

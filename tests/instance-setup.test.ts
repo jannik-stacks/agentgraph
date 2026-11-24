@@ -132,7 +132,7 @@ it('constructs a GitHub instance offline without a local origin or shell credent
   const setup = await makeTrackerSetup(
     await Effect.runPromise(settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config)))
   );
-  expect(setup.origin).toMatchObject({ origin: 'https://github.com/owner/repository.git' });
+  expect(setup.origin).toMatchObject({ upstream: { url: 'https://github.com/owner/repository.git' } });
   const checked = w.run('check');
   expect([checked.status, checked.stdout.trim(), checked.stderr]).toEqual([0, 'ok', '']);
 });

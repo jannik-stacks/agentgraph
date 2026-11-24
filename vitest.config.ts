@@ -86,6 +86,7 @@ const toolTests = [
   'tests/style.test.ts',
   'tests/test-processes.test.ts',
   'tests/tick-dispatch.test.ts',
+  'tests/tick-heard.test.ts',
   'tests/tick-asides.test.ts',
   'tests/tick-loop.test.ts',
   'tests/tool-run.test.ts',

@@ -8,7 +8,9 @@ import { Runner, Sandbox } from '../src/sandbox.ts';
 import { git, tmp } from './kit.ts';
 import { type Command, type Exit } from '../src/types.ts';
 
-export const dockerSandbox = (o: Parameters<typeof makeSandbox>[0] & Parameters<typeof dockerRunner>[0]) =>
+export const dockerSandbox = (
+  o: { origin: string | Parameters<typeof makeSandbox>[0]['origin'] } & Parameters<typeof dockerRunner>[0]
+) =>
   Layer.effect(
     Sandbox,
     Effect.gen(function* () {
@@ -39,7 +41,15 @@ export const dockerSandbox = (o: Parameters<typeof makeSandbox>[0] & Parameters<
               ),
       } satisfies Sandbox['Service'];
     })
-  ).pipe(Layer.provide(makeSandbox(o)), Layer.provideMerge(dockerRunner(o)));
+  ).pipe(
+    Layer.provide(
+      makeSandbox({
+        data: o.data,
+        origin: typeof o.origin === 'string' ? { kind: 'remote', upstream: { url: o.origin } } : o.origin,
+      })
+    ),
+    Layer.provideMerge(dockerRunner(o))
+  );
 
 export const makeDockerOrigin = () => {
   const dir = tmp('origin');

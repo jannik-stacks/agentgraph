@@ -33,14 +33,16 @@ const doer = ({ does }: Step) =>
 
 const formatTrigger = (w: Workflow) =>
   Object.entries(w.on)
-    .map(([event, t]) =>
-      event === 'issue_comment'
-        ? 'a /agent comment'
-        : event === 'dispatch'
-          ? 'dispatched'
-          : event === 'feedback'
-            ? "a person's review, comment or push, or a run that ends"
-            : `${event.replace('_', ' ')}${t?.branches ? ` on ${t.branches.join(', ')}` : ''}`
+    .flatMap(([event, t]) =>
+      typeof t === 'string'
+        ? []
+        : event === 'issue_comment'
+          ? 'a /agent comment'
+          : event === 'dispatch'
+            ? 'dispatched'
+            : event === 'feedback'
+              ? "a person's review, comment or push, or a run that ends"
+              : `${event.replace('_', ' ')}${t?.branches ? ` on ${t.branches.join(', ')}` : ''}`
     )
     .join(', ');
 

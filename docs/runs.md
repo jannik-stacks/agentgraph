@@ -49,7 +49,7 @@ The first command creates this file. Unknown fields fail. `checkout`, `graph` an
 | `loop` | `false`; outside-repo loop inclusion without `--instance` |
 | `trust` | Instance owner; trusted logins |
 | `image` | Graph image; override |
-| `limits.parallel` | Graph limit; concurrent drives |
+| `limits.parallel` | Graph limit; concurrent sandbox commands |
 | `base` | First checked-out branch; fast-forward target |
 | `owner` | First command's `git config user.name`, else OS user; local author and trusted login |
 | `tracker` | `folder`; built-in or graph plugin; stores files in `tracker/`; paths refused |
@@ -139,6 +139,7 @@ Readers derive `engine`, `image`, `config` and `harnesses` labels from `versions
 | `spoken` | Command or tracker event and its source |
 | `inputs` | When input recording began |
 | `told` | Forwarded text; `by` names the sending run or `cli` |
+| `heard` | What one [event hook](plugins.md#event-hooks) made of one event: `plugin`, `does`, `why`, `usd` |
 
 After `inputs`, `spoken` records each tracker event once per revision, with its `id` and `bot` flag. <!-- code: src/run/hear.ts#writeHeardEvents src/run/hear.ts#getEventKey src/run/trigger.ts#tick -->
 

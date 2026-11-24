@@ -6,14 +6,14 @@ import { findIssueStatus, formatStatusHeader, proposeQuestion } from '../context
 import { Store } from '../store.ts';
 import { type Graph, makeRunGraph } from '../folder.ts';
 import { LockHeldError } from '../owner.ts';
-import { type StatusChange, readPlugins } from '../plugin.ts';
+import type { StatusChange } from '../plugin.ts';
 import type { Proposal } from '../proposal.ts';
 import { getSha } from '../hash.ts';
 import { getRunSpend } from '../trace.ts';
 import type { Applied, Event } from '../event.ts';
 import type { Services } from './execute.ts';
 import { runEndedChecks } from './evaluate.ts';
-import { readIssueWithPull } from './hear.ts';
+import { readHooks, readIssueWithPull } from './hear.ts';
 import { type Checkout, type Run, type StoreError, type TrackerError } from '../types.ts';
 
 export const useRunLink =
@@ -31,7 +31,7 @@ export const isParked = (run: Pick<Run, 'status' | 'waiting' | 'retried'>) =>
 export const readRunSpend = (id: string) =>
   Effect.flatMap(Store, store =>
     Effect.zipWith(
-      Stream.runCollect(Stream.filter(store.read(id), line => 'session' in line)),
+      Stream.runCollect(Stream.filter(store.read(id), line => 'session' in line || 'heard' in line)),
       store.readChecks(id),
       (sessions, checks) => getRunSpend([...sessions, ...checks])
     )
@@ -133,20 +133,10 @@ export const writeEyes = (run: Run, issue: number, m: Event) =>
 
 const announce = (graph: Graph, change: StatusChange) =>
   Effect.gen(function* () {
-    const tracker = yield* Tracker;
-    const { writeField } = tracker;
-    const { hooks } = yield* Effect.tryPromise(() => readPlugins(graph.dir, graph.plugins));
-    for (const hook of hooks)
-      yield* Effect.tryPromise(async () =>
-        hook.status(change, {
-          repo: graph.repo,
-          settings: hook.settings,
-          tracker: {
-            searchIssues: (...args) => Effect.runPromise(tracker.searchIssues(...args)),
-            ...(writeField && { writeField: (issue, field) => Effect.runPromise(writeField(issue, field)) }),
-          },
-        })
-      ).pipe(Effect.catch(e => Effect.logWarning(`status hook of plugin ${hook.plugin}`, e)));
+    for (const hook of yield* readHooks(graph))
+      yield* Effect.tryPromise(async () => hook.status?.(change, hook.context)).pipe(
+        Effect.catch(e => Effect.logWarning(`status hook of plugin ${hook.plugin}`, e))
+      );
   }).pipe(Effect.catch(e => Effect.logWarning('status hooks', e)));
 
 export const writeMovedStatus = (w: Workflow, asked: Run, moved: Run, graph: Graph) => {

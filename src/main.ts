@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { parseEnv } from 'node:util';
-import { ConfigProvider, Effect, identity, Layer, type Semaphore } from 'effect';
+import { ConfigProvider, Effect, identity, Layer } from 'effect';
 import {
   instruct,
   issueDebounceMs,
@@ -22,7 +22,7 @@ import { makeProductionLayers, type makeTrackerSetup, readTrackerName, settings,
 import { Store } from './store.ts';
 import { LockHeldError } from './owner.ts';
 import { parseLabels, writeRunLabels } from './labels.ts';
-import { sessionPermitsRef, type Services } from './run/execute.ts';
+import { slotsRef, type Services } from './run/execute.ts';
 import { type Run, type RunRecord, StoreError } from './types.ts';
 
 export const secretSettings = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_PROXY_KEYS'];
@@ -38,6 +38,7 @@ const instanceSettings = [
   'AGENTGRAPH_APP_KEY_FILE',
   'AGENTGRAPH_TRACKER',
   'AGENTGRAPH_REPO',
+  'AGENTGRAPH_FORK',
   'AGENTGRAPH_TRUST',
   'AGENTGRAPH_DIR',
   'AGENTGRAPH_PROVIDER',
@@ -180,7 +181,7 @@ export const start = (
     };
     choice?: Parameters<typeof makeHarnessConfigProvider>[0];
     drives?: ReturnType<typeof startLoopDrives>;
-    sessions?: Semaphore.Semaphore;
+    slots?: typeof slotsRef.Service;
     poll?: true;
   },
   services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers(one.setup?.tracker),
@@ -228,7 +229,7 @@ export const start = (
           : one.issue === 'all'
             ? scanIssuesAndRunningRuns(
                 graph,
-                drives && one.setup?.tracker.origin.local === false ? issueDebounceMs : 0,
+                drives && one.setup?.tracker.origin.kind === 'remote' ? issueDebounceMs : 0,
                 one.meta,
                 fork,
                 drives?.gates
@@ -254,7 +255,7 @@ export const start = (
   });
   return Effect.runPromise(
     program.pipe(
-      one.sessions ? Effect.provideService(sessionPermitsRef, one.sessions) : identity,
+      one.slots ? Effect.provideService(slotsRef, one.slots) : identity,
       one.instance ? Effect.annotateLogs('instance', basename(one.instance.dir)) : identity
     ),
     { signal }
