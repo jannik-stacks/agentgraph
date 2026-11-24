@@ -881,7 +881,7 @@ describe('githubTracker', () => {
           config: makeEnvProvider({ AGENTGRAPH_FORK: fork }),
         })
       ).pipe(
-        Result.map(setup => [setup.origin.origin, setup.origin.branches?.origin]),
+        Result.map(({ origin }) => origin.kind === 'remote' && [origin.upstream.url, origin.branches?.url]),
         Result.getOrElse(String)
       )
     );
@@ -905,7 +905,10 @@ describe('githubTracker', () => {
         issue(10, { pull_request: {} }),
       ],
       'GET /repos/o/r/pulls?state=open&per_page=100': [mine, pull(9), { ...mine, number: 10, head: byHand }],
-      [`GET /repos/o/r/issues/comments?${window}`]: [comment(1, 'carol', 'MEMBER', '/agent go')],
+      [`GET /repos/o/r/issues/comments?${window}`]: [
+        comment(1, 'carol', 'MEMBER', '/agent go'),
+        comment(2, 'me', 'NONE', '/agent go'),
+      ],
       [`GET /repos/o/r/pulls/comments?${window}`]: [],
       'GET /repos/o/r/issues/events?per_page=100': [],
       'GET /repos/o/r/pulls/8/reviews?per_page=100': [],
@@ -927,6 +930,7 @@ describe('githubTracker', () => {
     ]);
     expect(events.map(m => [m.kind, m.actor, m.trusted])).toEqual([
       ['comment', 'carol', false],
+      ['comment', 'me', true],
       ['commit', 'dave', false],
     ]);
     const auths = f.calls.filter(c => c.path !== '/app').map(c => c.headers.get('authorization'));
@@ -1583,7 +1587,11 @@ describe('githubTracker', () => {
         ...chained,
         'POST /repos/o/r/pulls': () => ({ status: 422, body: { message: 'A pull request already exists' } }),
         'GET /repos/o/r/pulls?state=open&head=o:agentgraph/12': [
-          { number: 12, body: '<!-- agentgraph status -->\n※ done\n<!-- end agentgraph status -->\n\nOld.' },
+          pull(9, { head: pull(12).head }),
+          {
+            ...pull(12, { base: { ref: 'agentgraph/11' } }),
+            body: '<!-- agentgraph status -->\n※ done\n<!-- end agentgraph status -->\n\nOld.',
+          },
         ],
         'PATCH /repos/o/r/pulls/12': { number: 12, html_url: 'https://github.com/o/r/pull/12' },
       });
@@ -1836,6 +1844,7 @@ describe('githubTracker', () => {
               { kind: 'push', branch: 'agentgraph/7', message: 'Fix' },
               { kind: 'pull_request', branch: 'agentgraph/7', base: 'main', title: 'Fix', body: 'Closes #7' },
               { kind: 'comment', body: 'done' },
+              { kind: 'ask', question: 'Which?' },
               { kind: 'label', add: ['ready'] },
               { kind: 'merge', number: 9, head: 'abc' },
             ] satisfies Proposal[],
@@ -1847,6 +1856,7 @@ describe('githubTracker', () => {
       expect(applied.map(a => [a.ok, a.url ?? a.reason])).toEqual([
         [true, `https://github.com/me/r/commit/${head.sha}`],
         [true, 'https://github.com/o/r/pull/9'],
+        [true, 'not sent: o/r takes only pull requests'],
         [true, 'not sent: o/r takes only pull requests'],
         [true, 'not sent: o/r takes only pull requests'],
         [false, 'o/r takes only pull requests, no merge'],

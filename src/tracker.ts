@@ -89,14 +89,12 @@ export const makeStatusLabel = (
   remove: Object.values(names).filter(name => name !== names[to]),
 });
 
+type TrackerRemote = { url: string; token?: Effect.Effect<string, TrackerError> };
+
 export type TrackerSetup = {
   layer: (trust?: readonly string[], as?: string) => Layer.Layer<Tracker>;
-  origin: {
-    origin: string;
-    local?: boolean;
-    token?: Effect.Effect<string, TrackerError>;
-    branches?: Pick<TrackerSetup['origin'], 'origin' | 'token'>;
-  };
+  origin: { kind: 'folder'; dir: string } | { kind: 'remote'; upstream: TrackerRemote; branches?: TrackerRemote };
+  reach?: Effect.Effect<string[], unknown>;
 };
 
 export const parseIssueSearch = (
@@ -715,7 +713,7 @@ export const folder = makePlugin({
     if (!dir) throw new Error('the folder tracker needs a folder: --tracker <dir>');
     return {
       layer: (trust, as) => folderTracker(dir, as, trust),
-      origin: { origin: join(dir, 'origin.git'), local: true },
+      origin: { kind: 'folder', dir },
     };
   },
 });

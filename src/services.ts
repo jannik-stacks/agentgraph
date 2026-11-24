@@ -255,7 +255,7 @@ export const makeTrackerSetup = async (
   if ('problem' in picked) throw new Error(picked.problem);
   const dir = picked.dir ?? s.trackerDir;
   const setup = picked.tracker({ ...Struct.pick(s, ['repo', 'studio', 'app', 'config']), ...(dir && { dir }) });
-  if (setup.origin.local && dir && setup.origin.origin !== join(dir, 'origin.git'))
+  if (setup.origin.kind === 'folder' && dir && setup.origin.dir !== dir)
     throw new Error(
       `tracker ${s.tracker} keeps its issues outside ${s.trackerDir}; an instance tracker wraps the folder it is given`
     );
@@ -296,7 +296,7 @@ export const makeProductionLayers = (setup?: TrackerSetup) => {
         const { layer: tracker, origin } = yield* Effect.promise(() => current);
         const found = yield* Effect.promise(() => runner);
         if ('problem' in found) return yield* Effect.die(new Error(found.problem));
-        const sandbox = makeSandbox({ data: s.data, ...origin }).pipe(
+        const sandbox = makeSandbox({ data: s.data, origin }).pipe(
           Layer.provide(Layer.orDie(found.runner(makeRunnerHost(s))))
         );
         const config = yield* readHarnessSettings.pipe(

@@ -488,6 +488,7 @@ describe('docker checkout', () => {
 
   it.each(['main', 'origin/HEAD'])('reads %s without starting or inspecting a sandbox image', async ref => {
     const repo = origin();
+    git(repo, 'clone', '-q', '--bare', '.', 'origin.git');
     const bin = tmp('docker-bin');
     const log = join(bin, 'log');
     writeFileSync(join(bin, 'docker'), `#!/bin/sh\necho called >> ${log}\nexit 1\n`);
@@ -496,7 +497,7 @@ describe('docker checkout', () => {
     process.env.PATH = `${bin}${delimiter}${path}`;
     try {
       const exit = await use(
-        dockerSandbox({ data: tmp('data'), origin: join(repo, '.git'), local: true, cache: '' }),
+        dockerSandbox({ data: tmp('data'), origin: { kind: 'folder', dir: repo }, cache: '' }),
         s => s.readHead(ref)
       );
       expect(exit).toEqual(Exit.succeed(git(repo, 'rev-parse', 'main')));
@@ -521,7 +522,10 @@ describe('docker checkout', () => {
     const token = 'ghs_secret_token_value';
     const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
     try {
-      const layer = dockerSandbox({ data, origin: origin(), token: Effect.succeed(token) });
+      const layer = dockerSandbox({
+        data,
+        origin: { kind: 'remote', upstream: { url: origin(), token: Effect.succeed(token) } },
+      });
       const exit = await use(layer, s => Effect.andThen(s.checkout('main'), s.checkout('main')));
       expect(Exit.isSuccess(exit)).toBe(true);
     } finally {

@@ -85,13 +85,23 @@ const readInstanceServed = async ({ root, graph: explicit }: StudioInstances, na
       settings.pipe(Effect.provideService(ConfigProvider.ConfigProvider, scope.config))
     );
     const setup = await makeTrackerSetup(current);
-    if (setup.origin.local && !existsSync(setup.origin.origin)) throw new Error(whyTracker);
+    if (setup.origin.kind === 'folder' && !existsSync(join(setup.origin.dir, 'origin.git')))
+      throw new Error(whyTracker);
     const loaded = await loadGraph(dir, instance, scope);
     const host = await makeServedHost(instance.data, loaded.graph, {
       layer: setup.layer(loaded.graph?.trust ?? current.trust, instance.owner),
       origin: setup.origin,
     });
-    return { name, title: name, dir, data: instance.data, files, local: !!setup.origin.local, host, ...loaded };
+    return {
+      name,
+      title: name,
+      dir,
+      data: instance.data,
+      files,
+      local: setup.origin.kind === 'folder',
+      host,
+      ...loaded,
+    };
   } catch (e) {
     const problems = [{ path: 'instance.yaml', message: (e as Error).message }];
     return {
@@ -119,7 +129,7 @@ const readPlainServed = async (): Promise<ServedGraph> => {
           host: await makeServedHost(data, graph, setup && { layer: setup.layer(graph?.trust), origin: setup.origin }),
         }
       : {};
-  const local = !!setup?.origin.local;
+  const local = setup?.origin.kind === 'folder';
   const plain = { name: '', title: basename(dir ?? data ?? ''), ...(data && { data }), files: [], local };
   if (!dir) return { ...plain, ...(await makeHost()), problems: [] };
   const { readInstanceEnv } = await readModule<typeof MainModule>('src/main.ts');

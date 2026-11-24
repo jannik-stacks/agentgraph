@@ -88,12 +88,12 @@ it('loads the tracker example, which wraps a built-in by its package path, under
 import { readPlugins } from ${JSON.stringify(pathToFileURL(join(import.meta.dirname, '../src/plugin.ts')).href)};
 const { trackers } = await readPlugins(${JSON.stringify(dir)}, {});
 const { github } = await import('@jannik-stacks/agi/trackers');
-console.log(trackers['my-folder']({ dir: '/t' }).origin.origin, github.name);
+console.log(trackers['my-folder']({ dir: '/t' }).origin.dir, github.name);
 `,
     ],
     { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' } }
   );
-  expect(picked.trim()).toBe('/t/origin.git github');
+  expect(picked.trim()).toBe('/t github');
 });
 
 const readExternalPlugin = (dir: string) =>

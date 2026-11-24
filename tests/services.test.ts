@@ -102,13 +102,13 @@ export default { name: 'mine', tracker: host => folder.tracker({ ...host, dir: h
       tracker: name,
       trackerDir: folderDir,
     }).then(
-      s => s.origin.origin,
+      s => s.origin.kind === 'folder' && s.origin.dir,
       (e: Error) => e.message
     );
   expect(await Promise.all([setup(before, 'mine'), setup(after, 'mine'), setup(before, other)])).toEqual([
-    join(folderDir, 'origin.git'),
+    folderDir,
     `tracker mine keeps its issues outside ${folderDir}; an instance tracker wraps the folder it is given`,
-    join(other, 'origin.git'),
+    other,
   ]);
 });
 

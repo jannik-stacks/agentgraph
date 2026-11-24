@@ -38,15 +38,19 @@ gh auth refresh -s read:project
 
 ## Work from a fork
 
-To work on a repository the App cannot be installed on, install it on your fork and set `AGENTGRAPH_FORK` beside `AGENTGRAPH_REPO`, both as `owner/name`:
+To work on a repository the App cannot be installed on, install the App on your fork only. Set `AGENTGRAPH_FORK` beside `AGENTGRAPH_REPO`, both as `owner/name`:
 
 ```sh
 AGENTGRAPH_REPO=acme/mono AGENTGRAPH_FORK=me/mono agi loop --tracker github
 ```
 
-The engine reads issues, comments and pull requests in `AGENTGRAPH_REPO` with your user token, the one [project boards](#project-boards) use. It pushes `agentgraph/` branches to the fork as the App and opens each pull request upstream from the fork's branch. Checkouts fetch base branches from upstream and `agentgraph/` branches from the fork. Restart the loop after changing the fork. <!-- code: src/github.ts#github src/github.ts#githubTracker src/mirror.ts#makeSandbox -->
+The engine reads issues, comments and pull requests in `AGENTGRAPH_REPO` with your user token, the one [project boards](#project-boards) use: `AGENTGRAPH_PROJECT_TOKEN`, then `gh auth token`. Sign in with `gh auth login` as an account that can open pull requests upstream. A classic personal access token needs `public_repo` scope, or `repo` for a private upstream. `gh` keeps one login per machine, so instances with different accounts each set the token in their env file. <!-- code: src/github.ts#github src/github.ts#readProjectToken -->
 
-Upstream gets pull requests and nothing else. Comments, questions, reactions and labels are not sent, and their trace line says so. Merges and new issues are refused. Your own pull requests and comments read as the agent's own text. [Trust](workflows.md#trust-and-scope) still needs write access upstream, and a person whose permission your token may not read stays untrusted. A stacked pull request needs its base branch upstream, so leave `stacks` off. <!-- code: src/github.ts#githubTracker -->
+The engine pushes `agentgraph/` branches to the fork as the App and opens each pull request upstream from the fork's branch. A pull request that is already open for that branch and base gets its title and body updated. Checkouts fetch base branches and tags from upstream and only `agentgraph/` branches from the fork. `agi show` checks the App installation on the fork. Restart the loop after changing the fork. <!-- code: src/github.ts#githubTracker src/mirror.ts#makeSandbox bin/run.ts#runOnInstance -->
+
+Upstream gets pull requests and nothing else. Comments, questions, reactions and labels are not sent, and their trace line says so. A question still waits: read it in `agi show` or the studio and answer with a comment upstream. Merges and new issues are refused, and status labels and headers are not written. <!-- code: src/github.ts#githubTracker -->
+
+Your own pull requests and comments read as the agent's own text. Without `AGENTGRAPH_TRUST` your comments are trusted; with it, the list decides. Everyone else still needs write access upstream for [trust](workflows.md#trust-and-scope), and a person whose permission your token may not read stays untrusted. A stacked pull request needs its base branch upstream, so leave `stacks` off. <!-- code: src/github.ts#githubTracker -->
 
 ## Start the engine
 

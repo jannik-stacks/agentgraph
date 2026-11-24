@@ -24,13 +24,19 @@ it('fetches base branches from the origin and agentgraph branches from the secon
   commit(upstream, 'agentgraph/1', 'theirs');
   const ours = commit(fork, 'agentgraph/1', 'ours');
   const work = commit(fork, 'agentgraph/7', 'work');
-  const layer = makeSandbox({ data: tmp('data'), origin: upstream, branches: { origin: fork } }).pipe(
-    Layer.provide(Layer.succeed(Runner, { open: () => Effect.die('unused') }))
-  );
-  const heads = await Effect.runPromise(
-    Effect.flatMap(Sandbox, s => Effect.forEach(['main', 'agentgraph/1', 'agentgraph/7'], s.readHead)).pipe(
-      Effect.provide(layer)
-    )
-  );
-  expect(heads).toEqual([main, ours, work]);
+  git(fork, 'tag', 'fork-tag');
+  const layer = makeSandbox({
+    data: tmp('data'),
+    origin: { kind: 'remote', upstream: { url: upstream }, branches: { url: fork } },
+  }).pipe(Layer.provide(Layer.succeed(Runner, { open: () => Effect.die('unused') })));
+  const read = (refs: string[]) =>
+    Effect.runPromise(
+      Effect.flatMap(Sandbox, s => Effect.forEach(refs, ref => Effect.orElseSucceed(s.readHead(ref), () => ''))).pipe(
+        Effect.provide(layer)
+      )
+    );
+  const heads = await read(['main', 'agentgraph/1', 'agentgraph/7', 'fork-tag']);
+  git(fork, 'checkout', '-q', 'main');
+  git(fork, 'branch', '-q', '-D', 'agentgraph/7');
+  expect([heads, await read(['agentgraph/7'])]).toEqual([[main, ours, work, ''], ['']]);
 });

@@ -67,7 +67,7 @@ The trace keeps one [`heard`](runs.md#the-trace) line per hook and event, so a p
 
 ## Trackers
 
-`tracker({ repo, studio, app, config, dir })` returns `layer(trust)`, which provides `Tracker`, plus the git remote `origin`. A tracker reads its own variables from `config`, and `origin.branches` names a second remote for `agentgraph/` branches. Optional `status(n, to, names)` displays status names. `searchIssues` searches only the repository and applies text trust rules.
+`tracker({ repo, studio, app, config, dir })` returns `layer(trust)`, which provides `Tracker`, plus its `origin`: `{ kind: 'folder', dir }`, or `{ kind: 'remote', upstream, branches }` where the optional `branches` is a second remote for `agentgraph/` branches. A tracker reads its own variables from `config`. Optional `reach` returns lines for `agi show`. Optional `status(n, to, names)` displays status names. `searchIssues` searches only the repository and applies text trust rules.
 <!-- code: src/tracker.ts#Tracker src/tracker.ts#parseIssueSearch src/tracker.ts#folderTracker src/github.ts#githubTracker -->
 
 Select a plugin name or built-in tracker folder with `--tracker` or [instance and environment settings](local.md#named-instances-and-settings). Tracker plugins require a graph read by the host. Unknown or incompatible selections fail `agi check`.

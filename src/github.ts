@@ -370,6 +370,18 @@ const asApp = <T>(
   );
 };
 
+const sendOnlyPulls = (tracker: Tracker['Service'], repo: string): Tracker['Service'] => ({
+  ...tracker,
+  apply: (number, proposal, work) =>
+    unsent.has(proposal.kind)
+      ? Effect.succeed({ proposal, ok: true, reason: `not sent: ${repo} takes only pull requests` })
+      : proposal.kind === 'merge' || proposal.kind === 'issue'
+        ? Effect.succeed({ proposal, ok: false, reason: `${repo} takes only pull requests, no ${proposal.kind}` })
+        : tracker.apply(number, proposal, work),
+  status: () => Effect.void,
+  writeStatusHeader: () => Effect.void,
+});
+
 /** @internal */
 export const githubTracker = (
   app: { repo: string; id: string; key: Redacted.Redacted },
@@ -401,7 +413,6 @@ export const githubTracker = (
       authed(token, scope, t => request<T>(method, path, t, body, version)).pipe(Effect.map(r => r.data));
   const roles = new Map<string, { until: number; read: Effect.Effect<boolean, TrackerError> }>();
   return Layer.sync(Tracker, () => {
-    const listed = (user: User, association = '') => (trust ? trust.includes(login(user)) : members.has(association));
     const repo = `/repos/${app.repo}`;
     const gh = call(token);
     const branches = fork?.repo ?? app.repo;
@@ -411,17 +422,25 @@ export const githubTracker = (
       ghBranches<T>(method, `/repos/${branches}/git/${path}`, body, method === 'GET' ? 'read' : 'push');
     const isOwnPull = (pull?: RestPull) =>
       pull?.head.repo?.full_name === branches && (!fork || isAgentBranch(pull.head.ref));
-    let logins: string[] | undefined;
+    const makePullHead = (branch: string) =>
+      fork ? { head: `${owner}:${branch}`, head_repo: name } : { head: branch };
+    const readUser = fork
+      ? Effect.map(gh<{ login: string }>('GET', '/user'), user => user.login)
+      : Effect.succeed(undefined);
+    let self: { bot: string; user: string | undefined } | undefined;
 
     const me = Effect.suspend(() =>
-      logins
-        ? Effect.succeed(logins)
+      self
+        ? Effect.succeed(self)
         : Effect.gen(function* () {
             const { data } = yield* asApp(app, signed => request<{ slug: string }>('GET', '/app', signed));
-            const user = fork ? [(yield* gh<{ login: string }>('GET', '/user')).login] : [];
-            return (logins = [`${data.slug}[bot]`, ...user]);
+            return (self = { bot: `${data.slug}[bot]`, user: yield* readUser });
           })
     );
+    type Self = Effect.Success<typeof me>;
+    const isOurs = (self: Self, name: string) => name === self.bot || name === self.user;
+    const listed = (self: Self, user: User, association = '') =>
+      trust ? trust.includes(login(user)) : login(user) === self.user || members.has(association);
 
     const missing = <A, R>(effect: Effect.Effect<A, TrackerError, R>) =>
       Effect.catchIf(
@@ -445,9 +464,9 @@ export const githubTracker = (
         return items;
       });
 
-    const toIssue = (i: RestIssue, self: string[], pull?: RestPull, parent?: number): Issue => {
+    const toIssue = (i: RestIssue, self: Self, pull?: RestPull, parent?: number): Issue => {
       const author = login(i.user);
-      const shown = listed(i.user, i.author_association) || self.includes(author);
+      const shown = listed(self, i.user, i.author_association) || isOurs(self, author);
       return parseIssueLinks({
         number: i.number,
         title: shown ? visible(i.title) : withheld(author, 'title'),
@@ -477,9 +496,9 @@ export const githubTracker = (
           )
         : Effect.succeed(t);
 
-    const toComment = (c: RestComment, self: string[]): Comment => {
+    const toComment = (c: RestComment, self: Self): Comment => {
       const author = login(c.user);
-      const shown = listed(c.user, c.author_association) || self.includes(author);
+      const shown = listed(self, c.user, c.author_association) || isOurs(self, author);
       const comment: Comment = {
         id: String(c.id),
         author,
@@ -492,15 +511,15 @@ export const githubTracker = (
       return shown ? makeCommentWithAgentRequest(comment) : comment;
     };
 
-    const heard = (issue: number, c: RestComment, self: string[], kind: Event['kind'] = 'comment'): Event => {
+    const heard = (issue: number, c: RestComment, self: Self, kind: Event['kind'] = 'comment'): Event => {
       const comment = toComment(c, self);
       const bot = isBot(c.user);
-      const trusted = listed(c.user, c.author_association) && !bot;
+      const trusted = listed(self, c.user, c.author_association) && !bot;
       const id = `${c.path === undefined ? 'comment' : 'review-comment'}-${c.id}`;
       return { id, issue, kind, actor: comment.author, bot, trusted, at: c.created_at, comment };
     };
 
-    const reviewed = (issue: number, r: RestReview, self: string[]): Event | undefined => {
+    const reviewed = (issue: number, r: RestReview, self: Self): Event | undefined => {
       const kind =
         r.state === 'APPROVED' ? 'approved' : r.state === 'CHANGES_REQUESTED' ? 'changes_requested' : 'comment';
       if (!r.submitted_at || (kind === 'comment' && !visible(r.body).trim())) return undefined;
@@ -650,7 +669,7 @@ export const githubTracker = (
           ...reviews.flatMap(r => reviewed(number, r, self) ?? []),
           ...(yield* Effect.forEach(commits, c =>
             Effect.map(
-              !own ? Effect.succeed(false) : self.includes(login(c.author)) ? Effect.succeed(true) : may(c.author),
+              !own ? Effect.succeed(false) : isOurs(self, login(c.author)) ? Effect.succeed(true) : may(c.author),
               (shown): Event => ({
                 id: `commit-${c.sha}`,
                 issue: number,
@@ -788,7 +807,7 @@ export const githubTracker = (
           const found: Event[] = [];
           for (const c of commits.flat()) {
             const at = c.commit.committer?.date ?? c.commit.author?.date;
-            if (after(at) && c.author && !self.includes(login(c.author)))
+            if (after(at) && c.author && !isOurs(self, login(c.author)))
               found.push({
                 id: `commit-${c.sha}`,
                 issue: c.issue,
@@ -816,7 +835,9 @@ export const githubTracker = (
             if (m) found.push(m);
           }
           found.push(...board.filter(m => after(m.at)));
-          for (const m of found) if (m.trusted && (m.comment || m.commit)) m.trusted = yield* may({ login: m.actor });
+          for (const m of found)
+            if (m.trusted && (m.comment || m.commit))
+              m.trusted = m.actor === self.user || (yield* may({ login: m.actor }));
           return found.sort((a, b) => a.at.localeCompare(b.at));
         })
       );
@@ -1033,10 +1054,6 @@ export const githubTracker = (
       p: Proposal,
       work?: Checkout
     ): Effect.Effect<Partial<Omit<Applied, 'proposal'>>, TrackerError> => {
-      if (fork && unsent.has(p.kind))
-        return Effect.succeed({ reason: `not sent: ${app.repo} takes only pull requests` });
-      if (fork && (p.kind === 'merge' || p.kind === 'issue'))
-        return Effect.fail(refuse(`${app.repo} takes only pull requests, no ${p.kind}`));
       switch (p.kind) {
         case 'comment':
           return p.under === undefined
@@ -1089,19 +1106,19 @@ export const githubTracker = (
             const note = left.length
               ? `\n\nNot pushed: ${left.map(f => `\`${f}\``).join(', ')}. agentgraph does not push files under \`.github/\` (GitHub needs the app's Workflows permission for workflow files, and they run with the repo's secrets), so a maintainer pushes them to \`${p.branch}\`.`
               : '';
-            const head = fork ? { head: `${owner}:${p.branch}`, head_repo: name } : { head: p.branch };
-            const body = { title: p.title, ...head, base: p.base, body: p.body + note };
+            const body = { title: p.title, ...makePullHead(p.branch), base: p.base, body: p.body + note };
             const made = yield* gh<Made>('POST', `${repo}/pulls`, body, 'pull_request').pipe(
               Effect.catchIf(
                 e => e.status === 422,
                 e =>
                   Effect.flatMap(
-                    gh<(Made & { body?: string | null })[]>(
+                    gh<(Made & RestPull & { body?: string | null })[]>(
                       'GET',
                       `${repo}/pulls?state=open&head=${owner}:${p.branch}`
                     ),
-                    ([open]) =>
-                      open
+                    pulls => {
+                      const open = pulls.find(o => isOwnPull(o) && o.head.ref === p.branch && o.base.ref === p.base);
+                      return open
                         ? gh<Made>(
                             'PATCH',
                             `${repo}/pulls/${open.number}`,
@@ -1112,7 +1129,8 @@ export const githubTracker = (
                             },
                             'pull_request'
                           )
-                        : Effect.fail(e)
+                        : Effect.fail(e);
+                    }
                   )
               )
             );
@@ -1184,7 +1202,7 @@ export const githubTracker = (
       return Effect.map(all<Posted>(`${repo}/${thread}/comments?per_page=100`), c => find(c, post => post.id));
     };
 
-    return {
+    const tracker: Tracker['Service'] = {
       base: Effect.map(gh<{ default_branch: string }>('GET', repo), r => r.default_branch),
       issues,
       searchIssues,
@@ -1194,7 +1212,7 @@ export const githubTracker = (
       status: (number, to, names) => Effect.asVoid(act(number, makeStatusLabel(to, names))),
       writeStatusHeader: (number, header) =>
         Effect.gen(function* () {
-          if (fork || refused.has(number)) return;
+          if (refused.has(number)) return;
           const { body } = yield* gh<{ body?: string | null }>('GET', `${repo}/issues/${number}`);
           const next = makeBodyWithStatus(body ?? '', header);
           if (next !== (body ?? '')) yield* gh('PATCH', `${repo}/issues/${number}`, { body: next }, 'comment');
@@ -1250,9 +1268,11 @@ export const githubTracker = (
         ),
       ...(studio && { studio }),
     };
+    return fork ? sendOnlyPulls(tracker, app.repo) : tracker;
   });
 };
 
+/** @internal */
 export const readInstallationReach = (
   app: { repo: string; id: string; key: Redacted.Redacted },
   fetch: Fetch = globalThis.fetch
@@ -1280,7 +1300,7 @@ export const readInstallationReach = (
 
 const setups = new Map<string, TrackerSetup>();
 const currentFetch: Fetch = (url, init) => globalThis.fetch(url, init);
-const remote = (repo: string, token: AppToken) => ({ origin: `https://github.com/${repo}.git`, token: token('read') });
+const remote = (repo: string, token: AppToken) => ({ url: `https://github.com/${repo}.git`, token: token('read') });
 
 const userToken = (config: ConfigProvider.ConfigProvider): AppToken => {
   let kept: string | undefined;
@@ -1320,7 +1340,12 @@ export const github = makePlugin({
         layers.set(key, layer);
         return layer;
       },
-      origin: { ...remote(app.repo, token), ...(fork && { branches: remote(fork.repo, fork.token) }) },
+      origin: {
+        kind: 'remote',
+        upstream: remote(app.repo, token),
+        ...(fork && { branches: remote(fork.repo, fork.token) }),
+      },
+      reach: readInstallationReach({ ...app, repo: fork?.repo ?? app.repo }, currentFetch),
     };
     setups.set(key, setup);
     return setup;

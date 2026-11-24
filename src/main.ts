@@ -229,7 +229,7 @@ export const start = (
           : one.issue === 'all'
             ? scanIssuesAndRunningRuns(
                 graph,
-                drives && one.setup?.tracker.origin.local === false ? issueDebounceMs : 0,
+                drives && one.setup?.tracker.origin.kind === 'remote' ? issueDebounceMs : 0,
                 one.meta,
                 fork,
                 drives?.gates

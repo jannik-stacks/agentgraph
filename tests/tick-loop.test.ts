@@ -487,7 +487,10 @@ describe('the loop', () => {
         at: new Date().toISOString(),
       });
       const drives = startLoopDrives();
-      const setup = { ...(await readInstanceEnv(undefined, {}, env)), tracker: { origin: { local } } };
+      const setup = {
+        ...(await readInstanceEnv(undefined, {}, env)),
+        tracker: { origin: { kind: local ? 'folder' : 'remote' } },
+      };
       try {
         await main({ graph: sandbox, issue: 'all', data: where.data, drives, setup: setup as never }, doubles, env);
         return Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(where.data))));
